@@ -37,7 +37,10 @@ model User {
   updatedAt     DateTime  @default(now()) @updatedAt
   sessions      Session[]
   accounts      Account[]
-  posts         Post[]
+  posts          Post[]
+  emailAccounts  EmailAccount[]
+  galleryImages  GalleryImage[]
+  emailHistories EmailHistory[]
 
   @@unique([email])
   @@map("user")
@@ -86,4 +89,49 @@ model Verification {
   updatedAt  DateTime @default(now()) @updatedAt
 
   @@map("verification")
+}
+
+model EmailAccount {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailAddress   String
+  orgName        String         @default("FLC")
+  appPassword    String         // We will store it encrypted
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  emailHistories EmailHistory[]
+
+  @@map("email_account")
+}
+
+model GalleryImage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publicId  String   @unique
+  url       String
+  name      String
+  sizeBytes Int?
+  createdAt DateTime @default(now())
+
+  @@map("gallery_image")
+}
+
+model EmailHistory {
+  id           String       @id @default(cuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId    String
+  account      EmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  subject      String
+  bodyText     String?
+  bodyHtml     String?
+  imagesConfig Json?        // Configuration for up to 3 images with text overlay positions
+  excelData    Json         // Contains the full list of recipients and data mappings
+  status       String       @default("PENDING") // PENDING, COMPLETED, PARTIAL, FAILED
+  logs         Json?        // Detailed logs for each recipient
+  createdAt    DateTime     @default(now())
+
+  @@map("email_history")
 }
