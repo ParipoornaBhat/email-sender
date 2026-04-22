@@ -11,6 +11,15 @@
 
 # On Linux and macOS you can run this script directly - `./start-database.sh`
 
+# npx prisma db push --force-reset
+# npx prisma generate
+# npm run db:push
+# npx prisma db seed 
+# npm run dev
+# npm run socket
+
+
+
 # import env variables from .env
 set -a
 source .env
@@ -71,12 +80,7 @@ if [ "$DB_PASSWORD" = "password" ]; then
   fi
   # Generate a random URL-safe password
   DB_PASSWORD=$(openssl rand -base64 12 | tr '+/' '-_')
-  if [[ "$(uname)" == "Darwin" ]]; then
-    # macOS requires an empty string to be passed with the `i` flag
-    sed -i '' "s#:password@#:$DB_PASSWORD@#" .env
-  else
-    sed -i "s#:password@#:$DB_PASSWORD@#" .env
-  fi
+  sed -i "s#:password@#:$DB_PASSWORD@#" .env
 fi
 
 $DOCKER_CMD run -d \
