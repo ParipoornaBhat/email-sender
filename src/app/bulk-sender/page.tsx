@@ -108,9 +108,9 @@ export default function BulkSenderPage() {
   useEffect(() => {
     if (!isInitialLoadComplete) return;
 
-    if (data.length > 0) {
+    if (Array.isArray(data) && data.length > 0) {
       setRowStatuses(prev => {
-        const newStatuses = { ...prev };
+        const newStatuses = { ...prev || {} };
         let changed = false;
 
         data.forEach((_, idx) => {
@@ -160,7 +160,9 @@ export default function BulkSenderPage() {
       setDispatchProgress({ current: 0, total: data.length, success: 0, failed: 0 });
       setDispatchLogs([]);
       const freshStatuses: Record<number, string> = {};
-      data.forEach((_, i) => freshStatuses[i] = "PENDING");
+      if (Array.isArray(data)) {
+        data.forEach((_, i) => freshStatuses[i] = "PENDING");
+      }
       setRowStatuses(freshStatuses);
       rowStatusesRef.current = freshStatuses;
 
@@ -402,21 +404,24 @@ export default function BulkSenderPage() {
 
       // Reconstruct row statuses from logs
       const statuses: Record<number, string> = {};
-      (campaign.excelData as ExcelRow[]).forEach((_: any, i: number) => statuses[i] = "PENDING");
-      (campaign.logs as any[]).forEach((log: any) => {
+      const safeData = Array.isArray(campaign.excelData) ? (campaign.excelData as ExcelRow[]) : [];
+      const safeLogs = Array.isArray(campaign.logs) ? (campaign.logs as any[]) : [];
+      
+      safeData.forEach((_: any, i: number) => statuses[i] = "PENDING");
+      safeLogs.forEach((log: any) => {
         if (log.rowIndex !== undefined) {
           statuses[log.rowIndex] = log.status;
         }
       });
       setRowStatuses(statuses);
-      setDispatchLogs(campaign.logs as any[]);
+      setDispatchLogs(safeLogs);
 
       // Update progress
-      const success = (campaign.logs as any[]).filter((l: any) => l.status === "SUCCESS").length;
-      const failed = (campaign.logs as any[]).filter((l: any) => l.status !== "SUCCESS").length;
+      const success = safeLogs.filter((l: any) => l.status === "SUCCESS").length;
+      const failed = safeLogs.filter((l: any) => l.status !== "SUCCESS").length;
       setDispatchProgress({ 
-        current: (campaign.logs as any[]).length, 
-        total: (campaign.excelData as any[]).length, 
+        current: safeLogs.length, 
+        total: safeData.length, 
         success, 
         failed 
       });

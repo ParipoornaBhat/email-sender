@@ -38,14 +38,24 @@ export default function HistoryPage() {
 
   const selectedData = React.useMemo(() => {
     if (!selectedRecord) return null;
+    
+    // Prisma Json fields might already be objects/arrays, but let's be safe
+    const rawData = selectedRecord.excelData;
+    const rawLogs = selectedRecord.logs;
+    const rawImages = selectedRecord.imagesConfig;
+
+    const parsedData = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+    const parsedLogs = typeof rawLogs === "string" ? JSON.parse(rawLogs || "[]") : (rawLogs || []);
+    const parsedImages = typeof rawImages === "string" ? JSON.parse(rawImages || "[]") : (rawImages || []);
+
     return {
-      data: JSON.parse(selectedRecord.excelData),
+      data: Array.isArray(parsedData) ? parsedData : [],
       template: {
         subject: selectedRecord.subject,
         bodyHtml: selectedRecord.bodyHtml,
-        images: JSON.parse(selectedRecord.imagesConfig || "[]")
+        images: Array.isArray(parsedImages) ? parsedImages : []
       },
-      logs: JSON.parse(selectedRecord.logs || "[]")
+      logs: Array.isArray(parsedLogs) ? parsedLogs : []
     };
   }, [selectedRecord]);
 
@@ -124,17 +134,23 @@ export default function HistoryPage() {
                       onClick={(e) => {
                         e.stopPropagation();
                         
-                        const logs = JSON.parse(record.logs || "[]");
-                        const excelData = JSON.parse(record.excelData);
+                        const rawLogs = record.logs;
+                        const rawData = record.excelData;
+                        const logs = Array.isArray(rawLogs) ? rawLogs : (typeof rawLogs === "string" ? JSON.parse(rawLogs || "[]") : []);
+                        const excelData = Array.isArray(rawData) ? rawData : (typeof rawData === "string" ? JSON.parse(rawData || "[]") : []);
                         
                         // Reconstruct row statuses
                         const statuses: Record<number, string> = {};
-                        excelData.forEach((_: any, i: number) => statuses[i] = "PENDING");
-                        logs.forEach((log: any) => {
-                          if (log.rowIndex !== undefined) {
-                            statuses[log.rowIndex] = log.status;
-                          }
-                        });
+                        if (Array.isArray(excelData)) {
+                          excelData.forEach((_: any, i: number) => statuses[i] = "PENDING");
+                        }
+                        if (Array.isArray(logs)) {
+                          logs.forEach((log: any) => {
+                            if (log.rowIndex !== undefined) {
+                              statuses[log.rowIndex] = log.status;
+                            }
+                          });
+                        }
 
                         // Calculate progress
                         const successCount = logs.filter((l: any) => l.status === "SUCCESS").length;
