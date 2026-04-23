@@ -1,18 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { getEmailHistory } from "./actions";
-import { History, Calendar, Mail, CheckCircle2, XCircle, AlertTriangle, ChevronRight, Eye, Sparkles, Pause } from "lucide-react";
+import { History, Calendar, Mail, CheckCircle2, XCircle, AlertTriangle, ChevronRight, ArrowLeft, Pause } from "lucide-react";
 import { toast } from "sonner";
-import BulkEmailPreview from "@/components/email/BulkEmailPreview";
-import Modal from "@/components/ui/Modal";
+import CampaignDispatcher from "@/components/email/CampaignDispatcher";
 
 export default function HistoryPage() {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedRecord, setSelectedRecord] = useState<any>(null);
-  const router = useRouter();
+  const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -38,29 +35,29 @@ export default function HistoryPage() {
       default: return <AlertTriangle className="text-amber-500" size={18} />;
     }
   };
-  const selectedData = React.useMemo(() => {
-    if (!selectedRecord) return null;
-    
-    // Prisma Json fields might already be objects/arrays, but let's be safe
-    const rawData = selectedRecord.excelData;
-    const rawLogs = selectedRecord.logs;
-    const rawImages = selectedRecord.imagesConfig;
 
-    const parsedData = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-    const parsedLogs = typeof rawLogs === "string" ? JSON.parse(rawLogs || "[]") : (rawLogs || []);
-    const parsedImages = typeof rawImages === "string" ? JSON.parse(rawImages || "[]") : (rawImages || []);
+  // ── Active Campaign View ───────────────────────────
+  if (activeCampaignId) {
+    return (
+      <div className="container mx-auto px-4 max-w-7xl pt-4 pb-24">
+        <button
+          onClick={() => setActiveCampaignId(null)}
+          className="flex items-center gap-3 mb-6 text-zinc-400 hover:text-white transition-colors group"
+        >
+          <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
+          <span className="text-xs font-black uppercase tracking-widest">Back to History</span>
+        </button>
 
-    return {
-      data: Array.isArray(parsedData) ? parsedData : [],
-      template: {
-        subject: selectedRecord.subject,
-        bodyHtml: selectedRecord.bodyHtml,
-        images: Array.isArray(parsedImages) ? parsedImages : []
-      },
-      logs: Array.isArray(parsedLogs) ? parsedLogs : []
-    };
-  }, [selectedRecord]);
+        <CampaignDispatcher
+          mode="resume"
+          campaignId={activeCampaignId}
+          onReset={() => setActiveCampaignId(null)}
+        />
+      </div>
+    );
+  }
 
+  // ── Campaign List View ─────────────────────────────
   return (
     <div className="container mx-auto px-4 max-w-7xl pt-4 pb-24">
       <div className="mb-8 space-y-1">
@@ -98,7 +95,7 @@ export default function HistoryPage() {
             return (
               <div 
                 key={record.id}
-                onClick={() => setSelectedRecord(record)}
+                onClick={() => setActiveCampaignId(record.id)}
                 className="glass-card p-6 flex flex-col md:flex-row items-center justify-between group cursor-pointer hover:scale-[1.01] active:scale-[0.99] !rounded-[2rem] border-white/5 transition-all gap-6"
               >
                 <div className="flex items-center gap-6 flex-1 min-w-0">
@@ -136,68 +133,8 @@ export default function HistoryPage() {
                       <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Account</p>
                       <p className="text-xs font-bold text-zinc-300 truncate max-w-[150px]">{record.account.emailAddress}</p>
                   </div>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        
-                        const rawLogs = record.logs;
-                        const rawData = record.excelData;
-                        const logs = Array.isArray(rawLogs) ? rawLogs : (typeof rawLogs === "string" ? JSON.parse(rawLogs || "[]") : []);
-                        const excelData = Array.isArray(rawData) ? rawData : (typeof rawData === "string" ? JSON.parse(rawData || "[]") : []);
-                        
-                        // Reconstruct row statuses
-                        const statuses: Record<number, string> = {};
-                        if (Array.isArray(excelData)) {
-                          excelData.forEach((_: any, i: number) => statuses[i] = "PAUSED");
-                        }
-                        if (Array.isArray(logs)) {
-                          logs.forEach((log: any) => {
-                            if (log.rowIndex !== undefined) {
-                              statuses[log.rowIndex] = log.status;
-                            }
-                          });
-                        }
-
-                        // Calculate progress
-                        const successCount = logs.filter((l: any) => l.status === "SUCCESS").length;
-                        const failCount = logs.filter((l: any) => l.status !== "SUCCESS").length;
-
-                        // Store in local storage — must stringify everything since Prisma JSON fields are already objects
-                        const excelDataStr = typeof record.excelData === "string" ? record.excelData : JSON.stringify(record.excelData);
-                        const logsStr = typeof record.logs === "string" ? record.logs : JSON.stringify(record.logs || []);
-                        const imagesRaw = record.imagesConfig;
-                        const imagesParsed = Array.isArray(imagesRaw) ? imagesRaw : (typeof imagesRaw === "string" ? JSON.parse(imagesRaw || "[]") : []);
-
-                        localStorage.setItem("bulk-sender-data", excelDataStr);
-                        localStorage.setItem("bulk-sender-template", JSON.stringify({
-                          subject: record.subject,
-                          bodyHtml: record.bodyHtml,
-                          images: imagesParsed
-                        }));
-                        localStorage.setItem("bulk-sender-step", "3");
-                        localStorage.setItem("bulk-sender-history-id", record.id);
-                        localStorage.setItem("bulk-sender-account-id", record.accountId || "");
-                        localStorage.setItem("bulk-sender-logs", logsStr);
-                        localStorage.setItem("bulk-sender-row-statuses", JSON.stringify(statuses));
-                        localStorage.setItem("bulk-sender-progress", JSON.stringify({
-                          current: logs.length,
-                          total: excelData.length,
-                          success: successCount,
-                          failed: failCount
-                        }));
-                        localStorage.setItem("bulk-sender-dispatch-state", JSON.stringify("PAUSED"));
-                        
-                        router.push("/bulk-sender");
-                      }}
-                      className="p-3 rounded-xl bg-white/5 text-zinc-400 hover:text-white hover:bg-flc-orange/20 transition-all shadow-lg group/btn"
-                      title="Resume or Retry this campaign"
-                    >
-                      <Sparkles size={18} className="group-hover/btn:scale-110 transition-transform" />
-                    </button>
-                    <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-zinc-600 group-hover:text-flc-orange group-hover:bg-flc-orange/10 transition-all shadow-lg">
-                        <ChevronRight size={24} />
-                    </div>
+                  <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-zinc-600 group-hover:text-flc-orange group-hover:bg-flc-orange/10 transition-all shadow-lg">
+                      <ChevronRight size={24} />
                   </div>
                 </div>
               </div>
@@ -205,27 +142,6 @@ export default function HistoryPage() {
           })}
         </div>
       )}
-
-      {/* Detail View Modal */}
-      <Modal
-        isOpen={!!selectedRecord}
-        onClose={() => setSelectedRecord(null)}
-        title="Review Campaign"
-        maxWidth="max-w-[90vw]"
-      >
-        {selectedRecord && selectedData && (
-          <div className="max-w-none mx-auto">
-            <BulkEmailPreview 
-              data={selectedData.data as any[]}
-              template={selectedData.template as any}
-              dispatchLogs={selectedData.logs as any[]}
-              onConfirm={() => {}}
-              isSending={false}
-              readOnly={true}
-            />
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

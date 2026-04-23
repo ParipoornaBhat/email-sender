@@ -79,13 +79,15 @@ export default function BulkEmailPreview({
         });
     };
 
+    const safeData = Array.isArray(data) ? data : [];
+
     const filteredData = useMemo(() => {
-        if (!searchTerm) return data;
-        return data.filter(row => {
+        if (!searchTerm) return safeData;
+        return safeData.filter(row => {
             const str = JSON.stringify(row).toLowerCase();
             return str.includes(searchTerm.toLowerCase());
         });
-    }, [data, searchTerm]);
+    }, [safeData, searchTerm]);
 
     const currentRow = filteredData[selectedIndex] || filteredData[0] || data[0];
 
