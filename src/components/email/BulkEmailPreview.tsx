@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import {
     ChevronLeft, ChevronRight, Send, User, Mail,
     Image as ImageIcon, Sparkles, Loader2, Search,
-    CheckCircle2, Paperclip, FileImage, ExternalLink
+    CheckCircle2, Paperclip, FileImage, ExternalLink, X, Edit2
 } from "lucide-react";
 import type { ExcelRow, ImageConfig, EmailTemplate } from "@/app/bulk-sender/types";
 import Image from "next/image";
@@ -26,6 +26,8 @@ interface BulkEmailPreviewProps {
     onResumeDispatch?: () => void;
     onResetAndNew?: () => void;
     onDataEdit?: (rowIndex: number, newData: any) => void;
+    rowStatuses?: Record<number, string>;
+    onRowAction?: (index: number, action: "PAUSE" | "RESUME" | "CANCEL" | "RETRY") => void;
 }
 
 export default function BulkEmailPreview({
@@ -44,13 +46,16 @@ export default function BulkEmailPreview({
     onPauseDispatch,
     onResumeDispatch,
     onResetAndNew,
-    onDataEdit
+    onDataEdit,
+    rowStatuses = {},
+    onRowAction
 }: BulkEmailPreviewProps) {
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [searchTerm, setSearchTerm] = useState("");
     const [localAcceptedTerms, setLocalAcceptedTerms] = useState(false);
     const [isAgreeing, setIsAgreeing] = useState(false);
-    const [editData, setEditData] = useState<any>(null); // For inline error editing
+    const [editIndex, setEditIndex] = useState<number | null>(null); // For inline row editing
+    const [editData, setEditData] = useState<any>(null); // For inline editing
 
     const interpolate = (text: string, row: ExcelRow) => {
         return text.replace(/{([^}]+)}/g, (_, key) => {
@@ -77,230 +82,160 @@ export default function BulkEmailPreview({
         if (terminalEndRef.current) {
             terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
         }
-        if (dispatchState === "ERROR_PAUSED" && data[dispatchProgress.current - 1]) {
-            setEditData(data[dispatchProgress.current - 1]);
-        }
-    }, [dispatchLogs, dispatchState, dispatchProgress.current, data]);
+    }, [dispatchLogs]);
 
-    if (dispatchState !== "IDLE") {
-        return (
-            <div className="space-y-8 animate-in fade-in duration-700">
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2 sm:px-4">
-                    <div className="space-y-2">
-                        <h3 className="text-3xl sm:text-5xl font-black text-white lilita-font tracking-tight">Live Dispatch</h3>
-                        <p className="text-zinc-500 font-medium text-base sm:text-lg">Real-time progress of your campaign.</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                        {dispatchState === "ERROR_PAUSED" && (
-                            <button 
-                                onClick={() => {
-                                    if (onDataEdit && editData) {
-                                        onDataEdit(dispatchProgress.current - 1, editData);
-                                    }
-                                    onResumeDispatch?.();
-                                }}
-                                className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all shadow-[0_0_20px_rgba(242,140,40,0.2)]"
-                            >
-                                Save & Retry
-                            </button>
-                        )}
-                        {dispatchState === "PAUSED" && (
-                            <button 
-                                onClick={onResumeDispatch}
-                                className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all"
-                            >
-                                Resume Campaign
-                            </button>
-                        )}
-                        {dispatchState === "SENDING" && (
-                            <button 
-                                onClick={onPauseDispatch}
-                                className="bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-zinc-500 hover:text-white transition-all"
-                            >
-                                Pause
-                            </button>
-                        )}
-                        {(dispatchState === "SENDING" || dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") && (
-                            <button 
-                                onClick={() => {
-                                    if (window.confirm("Are you sure you want to cancel the rest of the campaign? This cannot be undone.")) {
-                                        onCancelDispatch?.();
-                                    }
-                                }}
-                                className="bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-red-500 hover:text-white transition-all"
-                            >
-                                Cancel
-                            </button>
-                        )}
-                        {(dispatchState === "COMPLETED" || dispatchState === "CANCELLED") && (
-                            <button 
-                                onClick={onResetAndNew}
-                                className="btn-primary px-6 py-3 !rounded-full !text-xs"
-                            >
-                                Start New Campaign
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                <div className="glass-card !rounded-[2.5rem] border-white/5 bg-black/40 overflow-hidden flex flex-col p-4 sm:p-8 gap-8">
-                    {/* Progress Stats */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Status</p>
-                            <p className="text-xl font-black text-white truncate">{dispatchState}</p>
-                        </div>
-                        <div className="bg-blue-500/10 p-4 rounded-2xl border border-blue-500/20">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">Progress</p>
-                            <p className="text-xl font-black text-blue-500 truncate">{dispatchProgress.current} / {dispatchProgress.total}</p>
-                        </div>
-                        <div className="bg-green-500/10 p-4 rounded-2xl border border-green-500/20">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-green-500 mb-1">Success</p>
-                            <p className="text-xl font-black text-green-500">{dispatchProgress.success}</p>
-                        </div>
-                        <div className="bg-red-500/10 p-4 rounded-2xl border border-red-500/20">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Failed</p>
-                            <p className="text-xl font-black text-red-500">{dispatchProgress.failed}</p>
-                        </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="w-full bg-white/5 h-4 rounded-full overflow-hidden relative">
-                        <div 
-                            className={`absolute top-0 left-0 h-full transition-all duration-300 ${dispatchState === "CANCELLED" || dispatchState === "ERROR_PAUSED" ? "bg-red-500" : "bg-flc-orange"}`}
-                            style={{ width: `${dispatchProgress.total > 0 ? (dispatchProgress.current / dispatchProgress.total) * 100 : 0}%` }}
-                        />
-                    </div>
-                    
-                    {/* Error Editor UI */}
-                    {dispatchState === "ERROR_PAUSED" && editData && (
-                        <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6 flex flex-col gap-4 animate-in slide-in-from-top-4">
-                            <h4 className="text-red-500 font-black tracking-widest uppercase text-xs flex items-center gap-2">
-                                <span className="bg-red-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">!</span>
-                                Action Required: Fix data and retry
-                            </h4>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {Object.entries(editData).map(([key, value]) => (
-                                    <div key={key} className="space-y-1">
-                                        <label className="text-[10px] font-black uppercase text-zinc-500">{key}</label>
-                                        <input 
-                                            type="text"
-                                            value={String(value || "")}
-                                            onChange={(e) => setEditData({ ...editData, [key]: e.target.value })}
-                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-flc-orange outline-none transition-colors"
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Terminal Window */}
-                    <div className="flex-1 min-h-[400px] max-h-[500px] bg-black rounded-2xl border border-white/10 p-4 sm:p-6 font-mono text-xs sm:text-sm overflow-y-auto custom-scrollbar flex flex-col gap-3">
-                        {dispatchLogs.map((log, idx) => (
-                            <div key={idx} className="flex items-start gap-3">
-                                <span className="text-zinc-600 mt-1">[{String(idx + 1).padStart(3, '0')}]</span>
-                                {log.status === "SUCCESS" ? (
-                                    <span className="text-green-400 flex items-start gap-2 leading-relaxed">
-                                        <CheckCircle2 size={16} className="mt-1 shrink-0" /> 
-                                        <span>Successfully sent to <span className="font-bold text-white">{log.email}</span></span>
-                                    </span>
-                                ) : (
-                                    <span className="text-red-400 flex items-start gap-2 leading-relaxed">
-                                        <span className="font-black mt-0.5 shrink-0">✗</span> 
-                                        <span>Failed to send to <span className="font-bold text-white">{log.email}</span>: {log.error}</span>
-                                    </span>
-                                )}
-                            </div>
-                        ))}
-                        {dispatchState === "SENDING" && currentlyProcessing && (
-                            <div className="flex items-center gap-3 text-zinc-500 animate-pulse mt-4">
-                                <Loader2 size={16} className="animate-spin" />
-                                Processing recipient {dispatchProgress.current + 1} of {dispatchProgress.total} ({currentlyProcessing})...
-                            </div>
-                        )}
-                        {dispatchState === "PAUSED" && (
-                            <div className="text-zinc-400 font-bold mt-4">
-                                &gt; CAMPAIGN PAUSED BY USER.
-                            </div>
-                        )}
-                        {dispatchState === "CANCELLED" && (
-                            <div className="text-red-500 font-bold mt-4">
-                                &gt; CAMPAIGN CANCELLED BY USER.
-                            </div>
-                        )}
-                        {dispatchState === "COMPLETED" && (
-                            <div className="text-green-500 font-bold mt-4">
-                                &gt; CAMPAIGN COMPLETED SUCCESSFULLY.
-                            </div>
-                        )}
-                        <div ref={terminalEndRef} />
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const isCurrentlySending = dispatchState === "SENDING";
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700">
+            {/* Header / Global Controls */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2 sm:px-4">
                 <div className="space-y-2">
-                    <h3 className="text-3xl sm:text-5xl font-black text-white lilita-font tracking-tight">Final Dispatch Check</h3>
-                    <p className="text-zinc-500 font-medium text-base sm:text-lg">Review and verify individual recipient data before mass dispatch.</p>
+                    <h3 className="text-3xl sm:text-5xl font-black text-white lilita-font tracking-tight">
+                        {dispatchState === "IDLE" ? "Final Dispatch Check" : "Live Dispatch Progress"}
+                    </h3>
+                    <p className="text-zinc-500 font-medium text-base sm:text-lg">
+                        {dispatchState === "IDLE" 
+                            ? "Review and verify individual recipient data before mass dispatch."
+                            : "Real-time progress and granular control of your campaign."}
+                    </p>
                 </div>
 
-                {!readOnly && (
-                    <div className="flex flex-col items-start md:items-end gap-4">
-                        {!hasAgreedTerms ? (
-                            <div className="flex flex-col items-end gap-4 bg-flc-orange/5 p-6 rounded-[2rem] border border-flc-orange/20 animate-in fade-in zoom-in duration-500">
-                                <label className="flex items-center gap-3 cursor-pointer group">
-                                    <input
-                                        type="checkbox"
-                                        checked={localAcceptedTerms}
-                                        onChange={(e) => setLocalAcceptedTerms(e.target.checked)}
-                                        className="w-5 h-5 rounded-lg accent-flc-orange border-white/10 bg-white/5"
-                                    />
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-zinc-200 transition-colors">
-                                        I agree to the <a href="/terms" target="_blank" className="text-flc-orange hover:underline">Terms</a> & <a href="/privacy" target="_blank" className="text-flc-orange hover:underline">Privacy Policy</a>
-                                    </span>
-                                </label>
-                                <button
-                                    onClick={async () => {
-                                        if (onAgree) {
-                                            setIsAgreeing(true);
-                                            await onAgree();
-                                            setIsAgreeing(false);
-                                        }
-                                    }}
-                                    disabled={!localAcceptedTerms || isAgreeing}
-                                    className="btn-primary flex items-center gap-3 !px-8 !py-4 !rounded-xl !text-xs !font-black !uppercase !tracking-widest"
-                                >
-                                    {isAgreeing ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-                                    Agree & Enable Sending
-                                </button>
-                            </div>
-                        ) : (
+                <div className="flex flex-col items-start md:items-end gap-4">
+                    {!hasAgreedTerms && dispatchState === "IDLE" ? (
+                        <div className="flex flex-col items-end gap-4 bg-flc-orange/5 p-6 rounded-[2rem] border border-flc-orange/20">
+                             {/* ... same terms code ... */}
+                             <label className="flex items-center gap-3 cursor-pointer group">
+                                <input
+                                    type="checkbox"
+                                    checked={localAcceptedTerms}
+                                    onChange={(e) => setLocalAcceptedTerms(e.target.checked)}
+                                    className="w-5 h-5 rounded-lg accent-flc-orange border-white/10 bg-white/5"
+                                />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-zinc-200 transition-colors">
+                                    I agree to the <a href="/terms" target="_blank" className="text-flc-orange hover:underline">Terms</a> & <a href="/privacy" target="_blank" className="text-flc-orange hover:underline">Privacy Policy</a>
+                                </span>
+                            </label>
                             <button
-                                onClick={onConfirm}
-                                disabled={isSending || data.length === 0}
-                                className="btn-primary group relative !px-12 !py-5 !rounded-2xl !text-sm !font-black !uppercase !tracking-[0.2em] shadow-2xl shadow-flc-orange/20 overflow-hidden active:scale-95 disabled:opacity-50"
+                                onClick={async () => {
+                                    if (onAgree) {
+                                        setIsAgreeing(true);
+                                        await onAgree();
+                                        setIsAgreeing(false);
+                                    }
+                                }}
+                                disabled={!localAcceptedTerms || isAgreeing}
+                                className="btn-primary flex items-center gap-3 !px-8 !py-4 !rounded-xl !text-xs !font-black !uppercase !tracking-widest"
                             >
-                                {isSending ? (
-                                    <div className="flex items-center gap-3">
-                                        <Loader2 className="animate-spin" size={20} />
-                                        <span>Dispatching...</span>
-                                    </div>
-                                ) : (
+                                {isAgreeing ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+                                Agree & Enable Sending
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap items-center gap-3">
+                            {dispatchState === "IDLE" && (
+                                <button
+                                    onClick={onConfirm}
+                                    disabled={isSending || data.length === 0}
+                                    className="btn-primary group relative !px-12 !py-5 !rounded-2xl !text-sm !font-black !uppercase !tracking-[0.2em] shadow-2xl shadow-flc-orange/20 overflow-hidden active:scale-95"
+                                >
                                     <div className="flex items-center gap-3">
                                         <Send size={20} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
                                         <span>Send to {data.length} Recipients</span>
                                     </div>
-                                )}
-                            </button>
-                        )}
-                    </div>
-                )}
+                                </button>
+                            )}
+                            {isCurrentlySending && (
+                                <button 
+                                    onClick={onPauseDispatch}
+                                    className="bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-zinc-500 hover:text-white transition-all flex items-center gap-3"
+                                >
+                                    <span className="w-2 h-2 bg-zinc-500 rounded-full animate-pulse" />
+                                    Pause Dispatch
+                                </button>
+                            )}
+                            {(dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED" || dispatchState === "CANCELLED" || dispatchState === "COMPLETED") && (
+                                <>
+                                    {(dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") && (
+                                        <button 
+                                            onClick={onResumeDispatch}
+                                            className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all flex items-center gap-3"
+                                        >
+                                            <Send size={16} />
+                                            Resume Remaining
+                                        </button>
+                                    )}
+                                    {(dispatchProgress.failed > 0 || dispatchState === "CANCELLED") && (
+                                        <button 
+                                            onClick={onResumeDispatch}
+                                            className="bg-blue-500/10 text-blue-500 border border-blue-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-blue-500 hover:text-white transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(59,130,246,0.2)]"
+                                        >
+                                            <Sparkles size={16} />
+                                            Retry Failed/Remaining
+                                        </button>
+                                    )}
+                                    <button 
+                                        onClick={onResetAndNew}
+                                        className="bg-white/5 text-zinc-400 border border-white/10 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:text-white transition-all"
+                                    >
+                                        New Campaign
+                                    </button>
+                                </>
+                            )}
+                            {(isCurrentlySending || dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") && (
+                                <button 
+                                    onClick={onCancelDispatch}
+                                    className="bg-red-500/10 text-red-500 border border-red-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-red-500 hover:text-white transition-all"
+                                >
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* Global Progress Bar (only during dispatch) */}
+            {dispatchState !== "IDLE" && (
+                <div className="glass-card !rounded-[2rem] border-white/5 bg-black/40 p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-6">
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Overall Progress</p>
+                                <p className="text-2xl font-black text-white">{dispatchProgress.current} <span className="text-zinc-600">/ {dispatchProgress.total}</span></p>
+                            </div>
+                            <div className="h-10 w-px bg-white/5" />
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-green-500">Success</p>
+                                <p className="text-2xl font-black text-green-500">{dispatchProgress.success}</p>
+                            </div>
+                            <div className="h-10 w-px bg-white/5" />
+                            <div className="space-y-1">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Failed</p>
+                                <p className="text-2xl font-black text-red-500">{dispatchProgress.failed}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                             <div className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                 dispatchState === "SENDING" ? "bg-flc-orange/10 text-flc-orange animate-pulse" : 
+                                 dispatchState === "COMPLETED" ? "bg-green-500/10 text-green-500" :
+                                 dispatchState === "CANCELLED" ? "bg-red-500/10 text-red-500" :
+                                 "bg-zinc-500/10 text-zinc-400"
+                             }`}>
+                                 {dispatchState}
+                             </div>
+                        </div>
+                    </div>
+                    <div className="w-full bg-white/5 h-3 rounded-full overflow-hidden relative">
+                        <div 
+                            className={`absolute top-0 left-0 h-full transition-all duration-500 ${
+                                dispatchState === "CANCELLED" || dispatchState === "ERROR_PAUSED" ? "bg-red-500" : "bg-flc-orange"
+                            }`}
+                            style={{ width: `${(dispatchProgress.current / dispatchProgress.total) * 100}%` }}
+                        />
+                    </div>
+                </div>
+            )}
 
             <div className="flex flex-col xl:flex-row xl:h-[750px] gap-6">
                 {/* Left Pane: Recipients List */}
@@ -327,27 +262,131 @@ export default function BulkEmailPreview({
                             const email = row.Email || row.email || Object.values(row)[0];
                             const name = row.Name || row.name || email;
                             const isSelected = currentRow === row;
+                            const status = rowStatuses[idx] || "PENDING";
 
                             return (
                                 <div
                                     key={idx}
                                     onClick={() => setSelectedIndex(idx)}
-                                    className={`p-6 border-b border-white/5 cursor-pointer transition-all relative group ${isSelected ? "bg-flc-orange/10" : "hover:bg-white/[0.02]"
+                                    className={`p-5 border-b border-white/5 cursor-pointer transition-all relative group ${isSelected ? "bg-flc-orange/10" : "hover:bg-white/[0.02]"
                                         }`}
                                 >
                                     {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-flc-orange shadow-[0_0_15px_rgba(249,115,22,0.5)]" />}
-                                    <div className="flex items-center justify-between mb-1">
-                                        <span className={`text-sm font-black truncate max-w-[180px] ${isSelected ? "text-flc-orange" : "text-white"}`}>
-                                            {name}
-                                        </span>
-                                        <span className="text-[10px] font-bold text-zinc-600">#{idx + 1}</span>
+                                    
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className={`w-2 h-2 rounded-full shrink-0 ${
+                                                status === "SUCCESS" ? "bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]" :
+                                                status === "FAILED" ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" :
+                                                status === "SENDING" ? "bg-flc-orange animate-pulse" :
+                                                status === "PAUSED" ? "bg-zinc-500" :
+                                                status === "CANCELLED" ? "bg-zinc-700" :
+                                                "bg-zinc-800"
+                                            }`} />
+                                            <span className={`text-sm font-black truncate ${isSelected ? "text-flc-orange" : "text-white"}`}>
+                                                {name}
+                                            </span>
+                                        </div>
+                                        <span className="text-[9px] font-bold text-zinc-700">#{idx + 1}</span>
                                     </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-bold text-zinc-500 truncate max-w-[200px]">{email}</span>
-                                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <span className="text-[10px] font-black text-zinc-700 uppercase">{template.images.length} <Paperclip size={10} className="inline ml-1" /></span>
+
+                                    <div className="flex items-center justify-between gap-4">
+                                        <span className="text-[10px] font-bold text-zinc-500 truncate">{email}</span>
+                                        
+                                        {/* Row Actions */}
+                                        <div className={`flex items-center gap-2 transition-all duration-300 ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+                                            {status === "PENDING" && isCurrentlySending && (
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "PAUSE"); }}
+                                                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                                                    title="Pause this email"
+                                                >
+                                                    <Loader2 size={12} className="animate-spin" />
+                                                </button>
+                                            )}
+                                            {status === "PAUSED" && (
+                                                <div className="flex items-center gap-1">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "RESUME"); }}
+                                                        className="p-1.5 rounded-lg bg-green-500/20 text-green-500 hover:bg-green-500 hover:text-white transition-all"
+                                                        title="Resume this email"
+                                                    >
+                                                        <Send size={12} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "CANCEL"); }}
+                                                        className="p-1.5 rounded-lg bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                                        title="Cancel this email"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); setEditIndex(idx); setEditData(row); }}
+                                                        className="p-1.5 rounded-lg bg-white/5 text-zinc-400 hover:text-white transition-all"
+                                                        title="Edit data"
+                                                    >
+                                                        <Edit2 size={12} />
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {(status === "FAILED" || status === "CANCELLED") && (
+                                                <div className="flex items-center gap-1">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "RETRY"); }}
+                                                        className="p-1.5 rounded-lg bg-blue-500/20 text-blue-500 hover:bg-blue-500 hover:text-white transition-all"
+                                                        title="Retry this email"
+                                                    >
+                                                        <Sparkles size={12} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); setEditIndex(idx); setEditData(row); }}
+                                                        className="p-1.5 rounded-lg bg-white/5 text-zinc-400 hover:text-white transition-all"
+                                                        title="Edit data"
+                                                    >
+                                                        <Edit2 size={12} />
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {status === "SUCCESS" && <CheckCircle2 size={14} className="text-green-500" />}
                                         </div>
                                     </div>
+
+                                    {/* Inline Edit UI */}
+                                    {editIndex === idx && editData && (
+                                        <div className="mt-4 p-4 rounded-xl bg-black/60 border border-white/10 space-y-4 animate-in slide-in-from-top-2" onClick={(e) => e.stopPropagation()}>
+                                            <div className="grid grid-cols-1 gap-3">
+                                                {Object.entries(editData).map(([key, value]) => (
+                                                    <div key={key} className="space-y-1">
+                                                        <label className="text-[9px] font-black uppercase text-zinc-600">{key}</label>
+                                                        <input 
+                                                            type="text"
+                                                            value={String(value || "")}
+                                                            onChange={(e) => setEditData({ ...editData, [key]: e.target.value })}
+                                                            className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-flc-orange/50 transition-all"
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button 
+                                                    onClick={() => {
+                                                        onDataEdit?.(idx, editData);
+                                                        setEditIndex(null);
+                                                        setEditData(null);
+                                                    }}
+                                                    className="flex-1 bg-flc-orange text-white py-2 rounded-lg text-[10px] font-black uppercase tracking-widest"
+                                                >
+                                                    Save Changes
+                                                </button>
+                                                <button 
+                                                    onClick={() => { setEditIndex(null); setEditData(null); }}
+                                                    className="px-4 py-2 bg-white/5 text-zinc-400 rounded-lg text-[10px] font-black uppercase tracking-widest"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
@@ -453,6 +492,64 @@ export default function BulkEmailPreview({
                     )}
                 </div>
             </div>
+
+            {/* Terminal Window (Unified at the bottom) */}
+            {dispatchState !== "IDLE" && (
+                <div className="glass-card !rounded-[2.5rem] border-white/5 bg-black/60 overflow-hidden flex flex-col p-4 sm:p-8 gap-4">
+                    <div className="flex items-center justify-between px-2">
+                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
+                            <span className="w-2 h-2 bg-flc-orange rounded-full animate-pulse" />
+                            Dispatch Console
+                        </h4>
+                        <div className="flex gap-2">
+                            <div className="w-3 h-3 rounded-full bg-red-500/20" />
+                            <div className="w-3 h-3 rounded-full bg-yellow-500/20" />
+                            <div className="w-3 h-3 rounded-full bg-green-500/20" />
+                        </div>
+                    </div>
+                    
+                    <div className="h-[300px] bg-black/80 rounded-2xl border border-white/10 p-6 font-mono text-xs sm:text-sm overflow-y-auto custom-scrollbar flex flex-col gap-3">
+                        {dispatchLogs.map((log, idx) => (
+                            <div key={idx} className="flex items-start gap-3">
+                                <span className="text-zinc-600 mt-1">[{String(idx + 1).padStart(3, '0')}]</span>
+                                {log.status === "SUCCESS" ? (
+                                    <span className="text-green-400 flex items-start gap-2 leading-relaxed">
+                                        <CheckCircle2 size={16} className="mt-1 shrink-0" /> 
+                                        <span>Successfully sent to <span className="font-bold text-white">{log.email}</span></span>
+                                    </span>
+                                ) : (
+                                    <span className="text-red-400 flex items-start gap-2 leading-relaxed">
+                                        <span className="font-black mt-0.5 shrink-0">✗</span> 
+                                        <span>Failed to send to <span className="font-bold text-white">{log.email}</span>: {log.error}</span>
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                        {dispatchState === "SENDING" && currentlyProcessing && (
+                            <div className="flex items-center gap-3 text-zinc-500 animate-pulse mt-4">
+                                <Loader2 size={16} className="animate-spin" />
+                                Processing recipient {dispatchProgress.current + 1} of {dispatchProgress.total} ({currentlyProcessing})...
+                            </div>
+                        )}
+                        {dispatchState === "PAUSED" && (
+                            <div className="text-zinc-400 font-bold mt-4">
+                                &gt; CAMPAIGN PAUSED BY USER.
+                            </div>
+                        )}
+                        {dispatchState === "CANCELLED" && (
+                            <div className="text-red-500 font-bold mt-4">
+                                &gt; CAMPAIGN CANCELLED BY USER.
+                            </div>
+                        )}
+                        {dispatchState === "COMPLETED" && (
+                            <div className="text-green-500 font-bold mt-4">
+                                &gt; CAMPAIGN COMPLETED SUCCESSFULLY.
+                            </div>
+                        )}
+                        <div ref={terminalEndRef} />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

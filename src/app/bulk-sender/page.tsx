@@ -43,6 +43,7 @@ export default function BulkSenderPage() {
   const [dispatchState, setDispatchState] = useState<"IDLE" | "SENDING" | "PAUSED" | "ERROR_PAUSED" | "CANCELLED" | "COMPLETED">("IDLE");
   const [dispatchProgress, setDispatchProgress] = useState({ current: 0, total: 0, success: 0, failed: 0 });
   const [dispatchLogs, setDispatchLogs] = useState<any[]>([]);
+  const [rowStatuses, setRowStatuses] = useState<Record<number, string>>({});
   const [currentlyProcessing, setCurrentlyProcessing] = useState<string | null>(null);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const actionRequested = useRef<"NONE" | "CANCEL" | "PAUSE" | "PAUSE_ERROR">("NONE");
@@ -78,6 +79,22 @@ export default function BulkSenderPage() {
     checkAgreement();
   }, []);
 
+  // Initialize row statuses when data is loaded
+  useEffect(() => {
+    if (data.length > 0) {
+      const initialStatuses: Record<number, string> = {};
+      data.forEach((_, idx) => {
+        // Only set to PENDING if not already set (to preserve statuses if data is edited)
+        if (!rowStatuses[idx]) {
+          initialStatuses[idx] = "PENDING";
+        }
+      });
+      if (Object.keys(initialStatuses).length > 0) {
+        setRowStatuses(prev => ({ ...initialStatuses, ...prev }));
+      }
+    }
+  }, [data.length]);
+
   // Save to localStorage when state changes
   useEffect(() => {
     localStorage.setItem("bulk-sender-data", JSON.stringify(data));
@@ -91,7 +108,7 @@ export default function BulkSenderPage() {
       return;
     }
 
-    const isResuming = dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED";
+    const isResuming = dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED" || dispatchState === "CANCELLED" || dispatchState === "COMPLETED";
 
     setDispatchState("SENDING");
     actionRequested.current = "NONE";
@@ -102,6 +119,10 @@ export default function BulkSenderPage() {
     if (!isResuming) {
       setDispatchProgress({ current: 0, total: data.length, success: 0, failed: 0 });
       setDispatchLogs([]);
+      // Reset all statuses to PENDING for a fresh start
+      const freshStatuses: Record<number, string> = {};
+      data.forEach((_, i) => freshStatuses[i] = "PENDING");
+      setRowStatuses(freshStatuses);
 
       // 1. Initialize in Database first
       const initRes = await initializeCampaign({ accountId: selectedAccountId, template, data });
@@ -124,19 +145,27 @@ export default function BulkSenderPage() {
       });
     }
 
-    const logs = isResuming ? [...dispatchLogs] : [];
-    let successCount = isResuming ? dispatchProgress.success : 0;
-    let failCount = isResuming ? dispatchProgress.failed : 0;
-    const startIndex = isResuming ? dispatchProgress.current : 0;
+    const logs = [...dispatchLogs];
+    
+    // Recalculate success/fail from rowStatuses
+    let successCount = Object.values(rowStatuses).filter(s => s === "SUCCESS").length;
+    let failCount = Object.values(rowStatuses).filter(s => s === "FAILED").length;
 
-    for (let i = startIndex; i < data.length; i++) {
+    for (let i = 0; i < data.length; i++) {
       if (actionRequested.current !== "NONE") {
-        break; // Cancel or Pause requested
+        break; // Global Cancel or Pause requested
+      }
+
+      const currentStatus = rowStatuses[i];
+      // Skip if already success or explicitly cancelled/paused at row level
+      if (currentStatus === "SUCCESS" || currentStatus === "CANCELLED" || currentStatus === "PAUSED") {
+        continue;
       }
 
       const row = data[i]!;
       const targetEmail = (row.Email || row.email || Object.values(row)[0]) as string;
       setCurrentlyProcessing(targetEmail);
+      setRowStatuses(prev => ({ ...prev, [i]: "SENDING" }));
 
       const result = await dispatchSingleEmail({
         accountId: selectedAccountId,
@@ -145,23 +174,26 @@ export default function BulkSenderPage() {
         rowIndex: i + 1
       });
 
-      logs.push(result.log);
+      const updatedLog = { ...result.log, rowIndex: i };
+      logs.push(updatedLog);
       setDispatchLogs([...logs]);
 
       if (result.success) {
         successCount++;
+        setRowStatuses(prev => ({ ...prev, [i]: "SUCCESS" }));
       } else {
         failCount++;
-        // On error, auto-pause the loop
-        actionRequested.current = "PAUSE_ERROR";
+        setRowStatuses(prev => ({ ...prev, [i]: "FAILED" }));
+        // On error, auto-pause the loop if user wants auto-pause on error
+        // actionRequested.current = "PAUSE_ERROR"; 
       }
 
-      setDispatchProgress(prev => ({
-        ...prev,
+      setDispatchProgress({
         current: i + 1,
+        total: data.length,
         success: successCount,
         failed: failCount
-      }));
+      });
 
       setCurrentlyProcessing(null);
 
@@ -174,8 +206,8 @@ export default function BulkSenderPage() {
         });
       }
 
-      // 1 second delay for UI visualization
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Small delay for UI visualization
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       if ((actionRequested.current as string) === "PAUSE_ERROR") {
         break; // Break loop immediately after updating DB
@@ -222,6 +254,22 @@ export default function BulkSenderPage() {
     }
 
     setIsSending(false);
+  };
+
+  const handleRowAction = async (index: number, action: "PAUSE" | "RESUME" | "CANCEL" | "RETRY") => {
+    if (action === "PAUSE") {
+      setRowStatuses(prev => ({ ...prev, [index]: "PAUSED" }));
+      toast.info(`Email #${index + 1} paused`);
+    } else if (action === "RESUME" || action === "RETRY") {
+      setRowStatuses(prev => ({ ...prev, [index]: "PENDING" }));
+      // If not already sending, start sending
+      if (dispatchState !== "SENDING") {
+        handleSend();
+      }
+    } else if (action === "CANCEL") {
+      setRowStatuses(prev => ({ ...prev, [index]: "CANCELLED" }));
+      toast.info(`Email #${index + 1} cancelled`);
+    }
   };
 
   const handleCancelDispatch = () => {
@@ -538,7 +586,7 @@ export default function BulkSenderPage() {
           )}
 
           {currentStep === 3 && (
-            <div className="max-w-6xl mx-auto">
+            <div className="max-w-7xl mx-auto">
               <BulkEmailPreview
                 data={data}
                 template={template}
@@ -548,6 +596,8 @@ export default function BulkSenderPage() {
                 dispatchState={dispatchState}
                 dispatchProgress={dispatchProgress}
                 dispatchLogs={dispatchLogs}
+                rowStatuses={rowStatuses}
+                onRowAction={handleRowAction}
                 currentlyProcessing={currentlyProcessing}
                 onCancelDispatch={handleCancelDispatch}
                 onPauseDispatch={handlePauseDispatch}
