@@ -135,13 +135,13 @@ export default function BulkSenderPage() {
           <div key={step.id} className="flex flex-col items-center gap-4 relative px-4 group">
             <button 
               onClick={() => setCurrentStep(idx)}
-              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-500 relative z-10 cursor-pointer ${
+              className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center transition-all duration-500 relative z-10 cursor-pointer ${
                 idx <= currentStep 
                   ? "bg-flc-orange text-white shadow-[0_0_30px_rgba(242,140,40,0.3)] scale-110" 
                   : "bg-flc-purple-dark text-zinc-600 border-2 border-white/5 hover:border-flc-orange/30"
               }`}
             >
-              <step.icon size={28} />
+              <step.icon className="w-5 h-5 sm:w-7 sm:h-7" />
             </button>
             <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${idx <= currentStep ? "text-flc-orange" : "text-zinc-600"}`}>
               {step.name}
@@ -162,8 +162,8 @@ export default function BulkSenderPage() {
                   <Trash2 size={14} />
                   Reset Draft
                 </button>
-                <h2 className="text-6xl font-black lilita-font text-white tracking-tight">Campaign Data</h2>
-                <p className="text-zinc-500 text-xl font-medium">Select your sender and upload the recipient list.</p>
+                <h2 className="text-4xl sm:text-6xl font-black lilita-font text-white tracking-tight">Campaign Data</h2>
+                <p className="text-zinc-500 text-lg sm:text-xl font-medium">Select your sender and upload the recipient list.</p>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
@@ -212,10 +212,10 @@ export default function BulkSenderPage() {
                   <div className="lg:col-span-3 space-y-8">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-flc-orange/10 flex items-center justify-center text-flc-orange shadow-inner">
-                          <Mail size={24} />
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-flc-orange/10 flex items-center justify-center text-flc-orange shadow-inner">
+                          <Mail className="w-5 h-5 sm:w-6 sm:h-6" />
                         </div>
-                        <h3 className="text-4xl font-black lilita-font tracking-tight">Compose Email</h3>
+                        <h3 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Compose Email</h3>
                       </div>
                       
                       <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
@@ -288,10 +288,10 @@ export default function BulkSenderPage() {
 
                   <div className="lg:col-span-2 space-y-8">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 shadow-inner">
-                        <Eye size={24} />
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 shadow-inner">
+                        <Eye className="w-5 h-5 sm:w-6 sm:h-6" />
                       </div>
-                      <h3 className="text-4xl font-black lilita-font tracking-tight">Live Preview</h3>
+                      <h3 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Live Preview</h3>
                     </div>
                     
                     <div className="bg-white rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] h-[650px] flex flex-col overflow-hidden border border-zinc-200">
@@ -366,10 +366,10 @@ export default function BulkSenderPage() {
           {currentStep === 2 && (
             <div className="max-w-7xl mx-auto space-y-12">
               <div className="text-center space-y-4">
-                <h2 className="text-6xl font-black lilita-font tracking-tight">Certificate Designer</h2>
-                <p className="text-zinc-500 text-xl font-medium">Map dynamic text to your certificate images.</p>
+                <h2 className="text-4xl sm:text-6xl font-black lilita-font tracking-tight">Certificate Designer</h2>
+                <p className="text-zinc-500 text-lg sm:text-xl font-medium">Map dynamic text to your certificate images.</p>
               </div>
-              <div className="glass-card p-4 !rounded-[4rem]">
+              <div className="glass-card p-2 sm:p-4 !rounded-[2rem] sm:!rounded-[4rem]">
                 <ImageConfigurator 
                     configs={template.images} 
                     onChange={(imgs) => setTemplate({ ...template, images: imgs })}
@@ -403,23 +403,23 @@ export default function BulkSenderPage() {
         </div>
 
         {/* Floating Controls */}
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-fit min-w-[400px] glass-card p-4 flex items-center justify-between !rounded-full border-white/10 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)] z-50">
+        <div className="fixed bottom-6 sm:bottom-10 left-1/2 -translate-x-1/2 w-[90%] sm:w-fit min-w-0 sm:min-w-[400px] max-w-md glass-card p-3 sm:p-4 flex items-center justify-between !rounded-full border-white/10 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)] z-50">
           <button
             onClick={prevStep}
             disabled={currentStep === 0}
-            className="flex items-center gap-3 px-8 py-4 rounded-full text-zinc-400 font-black uppercase text-xs tracking-widest hover:text-white hover:bg-white/5 transition-all disabled:opacity-0"
+            className="flex items-center gap-2 sm:gap-3 px-4 sm:px-8 py-3 sm:py-4 rounded-full text-zinc-400 font-black uppercase text-[10px] sm:text-xs tracking-widest hover:text-white hover:bg-white/5 transition-all disabled:opacity-0"
           >
-            <ArrowLeft size={18} />
-            Back
+            <ArrowLeft className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+            <span className="hidden sm:inline">Back</span>
           </button>
           
           {currentStep < STEPS.length - 1 && (
             <button
               onClick={nextStep}
-              className="btn-primary flex items-center gap-3 !px-10 !py-4 !rounded-full !text-xs !font-black !uppercase !tracking-widest"
+              className="btn-primary flex items-center justify-center gap-2 sm:gap-3 !px-6 sm:!px-10 !py-3 sm:!py-4 !rounded-full !text-[10px] sm:!text-xs !font-black !uppercase !tracking-widest flex-1 sm:flex-none ml-2 sm:ml-0"
             >
               Next Step
-              <ArrowRight size={18} />
+              <ArrowRight className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
             </button>
           )}
         </div>

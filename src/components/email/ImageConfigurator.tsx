@@ -12,6 +12,7 @@ import type { ImageConfig, TextConfig } from "@/app/bulk-sender/types";
 import { toast } from "sonner";
 import Image from "next/image";
 import { env } from "@/env";
+import { saveGalleryImage } from "@/app/bulk-sender/actions/gallery";
 
 const FONTS = [
   { name: "Arial", value: "Arial, sans-serif" },
@@ -26,7 +27,7 @@ const FONTS = [
 interface ImageConfiguratorProps {
   configs: ImageConfig[];
   onChange: (configs: ImageConfig[]) => void;
-  availableImages: { url: string; publicId: string; name: string }[];
+  availableImages: ImageConfig[];
   excelHeaders?: string[];
 }
 
@@ -58,6 +59,21 @@ export default function ImageConfigurator({ configs, onChange, availableImages, 
       publicId: img.publicId,
       name: img.name,
       texts: existingTexts.map(t => ({ ...t, id: Math.random().toString(36).substr(2, 9) })), // Clone with new IDs
+    };
+    onChange([...configs, newConfig]);
+    setSelectedImageId(newConfig.id);
+  };
+
+  const addTemplateConfig = (template: ImageConfig) => {
+    if (configs.length >= 3) {
+      toast.error("Maximum 3 images per email");
+      return;
+    }
+    const newConfig: ImageConfig = {
+      ...template,
+      id: Math.random().toString(36).substr(2, 9),
+      // Assign new IDs to texts to avoid conflicts
+      texts: template.texts.map(t => ({ ...t, id: Math.random().toString(36).substr(2, 9) }))
     };
     onChange([...configs, newConfig]);
     setSelectedImageId(newConfig.id);
@@ -393,18 +409,20 @@ export default function ImageConfigurator({ configs, onChange, availableImages, 
               }}
               onSuccess={(result: any) => {
                 if (result.info) {
-                  addImageConfig({
+                  const imgData = {
                     url: result.info.secure_url,
                     publicId: result.info.public_id,
                     name: result.info.original_filename || "uploaded-image",
-                  });
+                  };
+                  addImageConfig(imgData);
+                  saveGalleryImage(imgData); // Persist to gallery
                 }
               }}
             >
               {({ open }) => (
                 <div
                   onClick={() => open()}
-                  className="w-full border-2 border-dashed border-white/10 rounded-[3rem] p-10 flex flex-col items-center justify-center gap-4 bg-white/[0.02] hover:bg-flc-orange/[0.04] hover:border-flc-orange/30 transition-all cursor-pointer group shadow-2xl"
+                  className="w-full border-2 border-dashed border-white/10 rounded-[2rem] sm:rounded-[3rem] p-6 sm:p-10 flex flex-col items-center justify-center gap-4 bg-white/[0.02] hover:bg-flc-orange/[0.04] hover:border-flc-orange/30 transition-all cursor-pointer group shadow-2xl"
                 >
                   <div className="w-16 h-16 rounded-[1.5rem] bg-white/5 flex items-center justify-center text-zinc-600 group-hover:bg-flc-orange/10 group-hover:text-flc-orange transition-all duration-700 shadow-inner">
                     <Plus size={32} />
@@ -418,16 +436,16 @@ export default function ImageConfigurator({ configs, onChange, availableImages, 
             </CldUploadWidget>
 
             {/* Choose from Gallery */}
-            <div className="w-full glass-card !rounded-[3rem] p-10 border-white/5 bg-black/40 overflow-hidden flex flex-col gap-6">
+            <div className="w-full glass-card !rounded-[2rem] sm:!rounded-[3rem] p-6 sm:p-10 border-white/5 bg-black/40 overflow-hidden flex flex-col gap-6">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-black text-white lilita-font tracking-wider">Recent Gallery</h3>
-                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{availableImages.length} Images</span>
+                    <h3 className="text-xl font-black text-white lilita-font tracking-wider">Recently Used</h3>
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{availableImages.length} Templates</span>
                 </div>
-                <div className="grid grid-cols-4 gap-3 overflow-y-auto max-h-[140px] pr-2 custom-scrollbar">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 overflow-y-auto max-h-[140px] pr-2 custom-scrollbar">
                     {availableImages.map((img) => (
                         <div 
                             key={img.publicId}
-                            onClick={() => addImageConfig(img)}
+                            onClick={() => addTemplateConfig(img)}
                             className="relative aspect-video rounded-xl overflow-hidden border border-white/10 cursor-pointer hover:border-flc-orange/50 hover:scale-105 transition-all group"
                         >
                             <Image src={img.url} alt={img.name} fill className="object-cover" />
@@ -502,7 +520,7 @@ export default function ImageConfigurator({ configs, onChange, availableImages, 
                 </button>
              </div>
              
-             <div className="relative glass-card !rounded-[3rem] p-6 bg-black/40 border border-white/5 shadow-2xl min-h-[500px] flex items-center justify-center overflow-hidden">
+             <div className="relative glass-card !rounded-[2rem] sm:!rounded-[3rem] p-4 sm:p-6 bg-black/40 border border-white/5 shadow-2xl min-h-[300px] sm:min-h-[500px] flex items-center justify-center overflow-hidden">
                 {!currentConfig ? (
                     <div className="text-center space-y-4 opacity-20">
                         <Maximize2 size={64} className="mx-auto" />

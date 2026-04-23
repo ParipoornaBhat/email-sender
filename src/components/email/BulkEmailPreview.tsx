@@ -54,14 +54,14 @@ export default function BulkEmailPreview({
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700">
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-4">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2 sm:px-4">
                 <div className="space-y-2">
-                    <h3 className="text-5xl font-black text-white lilita-font tracking-tight">Final Dispatch Check</h3>
-                    <p className="text-zinc-500 font-medium text-lg">Review and verify individual recipient data before mass dispatch.</p>
+                    <h3 className="text-3xl sm:text-5xl font-black text-white lilita-font tracking-tight">Final Dispatch Check</h3>
+                    <p className="text-zinc-500 font-medium text-base sm:text-lg">Review and verify individual recipient data before mass dispatch.</p>
                 </div>
 
                 {!readOnly && (
-                    <div className="flex flex-col items-end gap-4">
+                    <div className="flex flex-col items-start md:items-end gap-4">
                         {!hasAgreedTerms ? (
                             <div className="flex flex-col items-end gap-4 bg-flc-orange/5 p-6 rounded-[2rem] border border-flc-orange/20 animate-in fade-in zoom-in duration-500">
                                 <label className="flex items-center gap-3 cursor-pointer group">
@@ -113,9 +113,9 @@ export default function BulkEmailPreview({
                 )}
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-[750px]">
+            <div className="flex flex-col xl:flex-row xl:h-[750px] gap-6">
                 {/* Left Pane: Recipients List */}
-                <div className="xl:col-span-4 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/40 overflow-hidden">
+                <div className="w-full xl:w-1/3 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/40 overflow-hidden min-h-[300px] xl:min-h-0">
                     <div className="p-6 border-b border-white/5 space-y-4">
                         <div className="flex items-center justify-between">
                             <h4 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500">Recipient Directory</h4>
@@ -172,7 +172,7 @@ export default function BulkEmailPreview({
                 </div>
 
                 {/* Right Pane: Content Preview */}
-                <div className="xl:col-span-8 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/20 overflow-hidden">
+                <div className="w-full xl:w-2/3 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/20 overflow-hidden min-h-[500px] xl:min-h-0">
                     {!currentRow ? (
                         <div className="flex-1 flex items-center justify-center opacity-20">
                             <p className="text-xl font-bold">Select a recipient to preview</p>
@@ -180,14 +180,14 @@ export default function BulkEmailPreview({
                     ) : (
                         <>
                             {/* Preview Header */}
-                            <div className="p-8 border-b border-white/5 bg-white/[0.02] flex items-center justify-between">
-                                <div className="flex items-center gap-6">
-                                    <div className="w-16 h-16 rounded-[1.5rem] bg-flc-orange/10 flex items-center justify-center text-flc-orange shadow-inner">
-                                        <User size={32} />
+                            <div className="p-4 sm:p-8 border-b border-white/5 bg-white/[0.02] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-center gap-4 sm:gap-6">
+                                    <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl sm:rounded-[1.5rem] bg-flc-orange/10 flex shrink-0 items-center justify-center text-flc-orange shadow-inner">
+                                        <User className="w-6 h-6 sm:w-8 sm:h-8" />
                                     </div>
-                                    <div className="space-y-1">
-                                        <h4 className="text-2xl font-black text-white lilita-font tracking-tight">{currentRow.Name || currentRow.name || "Recipient"}</h4>
-                                        <p className="text-sm font-bold text-zinc-500">{currentRow.Email || currentRow.email || "No email"}</p>
+                                    <div className="space-y-1 overflow-hidden">
+                                        <h4 className="text-xl sm:text-2xl font-black text-white lilita-font tracking-tight truncate">{currentRow.Name || currentRow.name || "Recipient"}</h4>
+                                        <p className="text-xs sm:text-sm font-bold text-zinc-500 truncate">{currentRow.Email || currentRow.email || "No email"}</p>
                                     </div>
                                 </div>
                                 <div className="hidden md:flex flex-col items-end gap-2 text-right">
@@ -197,17 +197,17 @@ export default function BulkEmailPreview({
                             </div>
 
                             {/* Scrollable Content Area */}
-                            <div className="flex-1 overflow-hidden flex">
+                            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
                                 {/* Email Body */}
-                                <div className="flex-1 p-8 overflow-y-auto border-r border-white/5 bg-white selection:bg-flc-orange/20">
+                                <div className="flex-1 p-4 sm:p-8 overflow-y-auto border-b md:border-b-0 md:border-r border-white/5 bg-white selection:bg-flc-orange/20 min-h-[300px]">
                                     <div
-                                        className="prose prose-lg max-w-none text-zinc-800"
+                                        className="prose prose-sm sm:prose-lg max-w-none text-zinc-800"
                                         dangerouslySetInnerHTML={{ __html: interpolatedBody }}
                                     />
                                 </div>
 
                                 {/* Attachments Column */}
-                                <div className="w-1/3 p-6 overflow-y-auto bg-black/40 custom-scrollbar space-y-6">
+                                <div className="w-full md:w-1/3 p-4 sm:p-6 overflow-y-auto bg-black/40 custom-scrollbar space-y-4 sm:space-y-6 max-h-[300px] md:max-h-none">
                                     <div className="flex items-center justify-between mb-4">
                                         <h5 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Attachments</h5>
                                         <span className="text-[10px] font-bold text-flc-orange">{template.images.length} Files</span>
