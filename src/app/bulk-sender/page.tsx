@@ -62,15 +62,30 @@ export default function BulkSenderPage() {
     const savedProgress = localStorage.getItem("bulk-sender-progress");
     const savedHistoryId = localStorage.getItem("bulk-sender-history-id");
     const savedState = localStorage.getItem("bulk-sender-dispatch-state");
+    
+    const loadedHistoryId = savedHistoryId;
+    const loadedState = savedState ? JSON.parse(savedState) : null;
 
     if (savedData) setData(JSON.parse(savedData));
     if (savedTemplate) setTemplate(JSON.parse(savedTemplate));
     if (savedStep) setCurrentStep(parseInt(savedStep));
-    if (savedRowStatuses) setRowStatuses(JSON.parse(savedRowStatuses));
+    if (savedRowStatuses) {
+      const rs = JSON.parse(savedRowStatuses);
+      setRowStatuses(rs);
+      rowStatusesRef.current = rs;
+    }
     if (savedLogs) setDispatchLogs(JSON.parse(savedLogs));
     if (savedProgress) setDispatchProgress(JSON.parse(savedProgress));
-    if (savedHistoryId) setActiveHistoryId(savedHistoryId);
-    if (savedState) setDispatchState(JSON.parse(savedState));
+    if (loadedHistoryId) setActiveHistoryId(loadedHistoryId);
+    
+    // Safety: if we were "sending" but the page reloaded, we are now "paused"
+    if (loadedState === "SENDING" || loadedState === "RETRYING") {
+      setDispatchState("PAUSED");
+      dispatchStateRef.current = "PAUSED";
+    } else if (loadedState) {
+      setDispatchState(loadedState);
+      dispatchStateRef.current = loadedState;
+    }
 
     const fetchData = async () => {
       const [accRes, imgRes, histRes] = await Promise.all([
@@ -85,6 +100,30 @@ export default function BulkSenderPage() {
       }
       if (imgRes.success && imgRes.data) setGalleryImages(imgRes.data);
       if (histRes.success && histRes.history) setRecentHistory(histRes.history);
+
+      // SYNC WITH SERVER: If we have an active campaign, get the latest truth
+      if (loadedHistoryId) {
+        const details = await getCampaignDetails(loadedHistoryId);
+        if (details.success && details.campaign) {
+          const camp = details.campaign;
+          const safeLogs = Array.isArray(camp.logs) ? (camp.logs as any[]) : [];
+          const safeData = Array.isArray(camp.excelData) ? (camp.excelData as ExcelRow[]) : [];
+          
+          setDispatchLogs(safeLogs);
+          setDispatchState(camp.status.includes("CANCELLED") ? "CANCELLED" : camp.status.includes("PAUSED") ? "PAUSED" : camp.status as any);
+          
+          // Reconstruct statuses
+          const freshStatuses: Record<number, string> = {};
+          safeData.forEach((_: any, i: number) => freshStatuses[i] = "PENDING");
+          safeLogs.forEach((l: any) => { if (l.rowIndex !== undefined) freshStatuses[l.rowIndex] = l.status; });
+          setRowStatuses(freshStatuses);
+          rowStatusesRef.current = freshStatuses;
+
+          // Update progress
+          const success = safeLogs.filter((l: any) => l.status === "SUCCESS").length;
+          setDispatchProgress({ current: safeLogs.length, total: safeData.length, success, failed: safeLogs.length - success });
+        }
+      }
     };
     fetchData();
 

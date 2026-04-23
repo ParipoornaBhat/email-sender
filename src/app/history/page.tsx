@@ -83,10 +83,15 @@ export default function HistoryPage() {
       ) : (
         <div className="space-y-6">
           {history.map((record) => {
-            const logs = JSON.parse(record.logs || "[]");
-            const successCount = logs.filter((l: any) => l.status === "SUCCESS").length;
-            const failCount = logs.filter((l: any) => l.status !== "SUCCESS").length;
-            const totalCount = JSON.parse(record.excelData).length;
+            const rawLogs = record.logs;
+            const rawData = record.excelData;
+            
+            const logs = Array.isArray(rawLogs) ? rawLogs : (typeof rawLogs === "string" ? JSON.parse(rawLogs || "[]") : []);
+            const excelData = Array.isArray(rawData) ? rawData : (typeof rawData === "string" ? JSON.parse(rawData || "[]") : []);
+
+            const successCount = Array.isArray(logs) ? logs.filter((l: any) => l.status === "SUCCESS").length : 0;
+            const failCount = Array.isArray(logs) ? logs.filter((l: any) => l.status !== "SUCCESS").length : 0;
+            const totalCount = Array.isArray(excelData) ? excelData.length : 0;
 
             return (
               <div 
