@@ -149,7 +149,7 @@ export default function HistoryPage() {
                         // Reconstruct row statuses
                         const statuses: Record<number, string> = {};
                         if (Array.isArray(excelData)) {
-                          excelData.forEach((_: any, i: number) => statuses[i] = "PENDING");
+                          excelData.forEach((_: any, i: number) => statuses[i] = "PAUSED");
                         }
                         if (Array.isArray(logs)) {
                           logs.forEach((log: any) => {
@@ -163,16 +163,22 @@ export default function HistoryPage() {
                         const successCount = logs.filter((l: any) => l.status === "SUCCESS").length;
                         const failCount = logs.filter((l: any) => l.status !== "SUCCESS").length;
 
-                        // Store in local storage
-                        localStorage.setItem("bulk-sender-data", record.excelData);
+                        // Store in local storage — must stringify everything since Prisma JSON fields are already objects
+                        const excelDataStr = typeof record.excelData === "string" ? record.excelData : JSON.stringify(record.excelData);
+                        const logsStr = typeof record.logs === "string" ? record.logs : JSON.stringify(record.logs || []);
+                        const imagesRaw = record.imagesConfig;
+                        const imagesParsed = Array.isArray(imagesRaw) ? imagesRaw : (typeof imagesRaw === "string" ? JSON.parse(imagesRaw || "[]") : []);
+
+                        localStorage.setItem("bulk-sender-data", excelDataStr);
                         localStorage.setItem("bulk-sender-template", JSON.stringify({
                           subject: record.subject,
                           bodyHtml: record.bodyHtml,
-                          images: JSON.parse(record.imagesConfig || "[]")
+                          images: imagesParsed
                         }));
                         localStorage.setItem("bulk-sender-step", "3");
                         localStorage.setItem("bulk-sender-history-id", record.id);
-                        localStorage.setItem("bulk-sender-logs", record.logs || "[]");
+                        localStorage.setItem("bulk-sender-account-id", record.accountId || "");
+                        localStorage.setItem("bulk-sender-logs", logsStr);
                         localStorage.setItem("bulk-sender-row-statuses", JSON.stringify(statuses));
                         localStorage.setItem("bulk-sender-progress", JSON.stringify({
                           current: logs.length,

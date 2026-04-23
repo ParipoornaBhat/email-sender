@@ -147,7 +147,6 @@ export default function BulkSenderPage() {
       if (res.success) setHasAgreedTerms(res.agreed ?? false);
     };
     checkAgreement();
-    setIsInitialLoadComplete(true);
   }, []);
 
   // Sync refs with state
