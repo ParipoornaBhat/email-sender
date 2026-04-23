@@ -110,12 +110,20 @@ export default function BulkSenderPage() {
           const safeData = Array.isArray(camp.excelData) ? (camp.excelData as ExcelRow[]) : [];
           
           setDispatchLogs(safeLogs);
-          setDispatchState(camp.status.includes("CANCELLED") ? "CANCELLED" : camp.status.includes("PAUSED") ? "PAUSED" : camp.status as any);
+          const isOverallPaused = camp.status.includes("PAUSED");
+          const isOverallCancelled = camp.status.includes("CANCELLED");
+          
+          setDispatchState(isOverallCancelled ? "CANCELLED" : isOverallPaused ? "PAUSED" : camp.status as any);
           
           // Reconstruct statuses
           const freshStatuses: Record<number, string> = {};
-          safeData.forEach((_: any, i: number) => freshStatuses[i] = "PENDING");
-          safeLogs.forEach((l: any) => { if (l.rowIndex !== undefined) freshStatuses[l.rowIndex] = l.status; });
+          safeData.forEach((_: any, i: number) => {
+            // Default to PAUSED if overall campaign is paused, otherwise PENDING
+            freshStatuses[i] = isOverallPaused ? "PAUSED" : "PENDING";
+          });
+          safeLogs.forEach((l: any) => { 
+            if (l.rowIndex !== undefined) freshStatuses[l.rowIndex] = l.status; 
+          });
           setRowStatuses(freshStatuses);
           rowStatusesRef.current = freshStatuses;
 
@@ -446,13 +454,18 @@ export default function BulkSenderPage() {
       const safeData = Array.isArray(campaign.excelData) ? (campaign.excelData as ExcelRow[]) : [];
       const safeLogs = Array.isArray(campaign.logs) ? (campaign.logs as any[]) : [];
       
-      safeData.forEach((_: any, i: number) => statuses[i] = "PENDING");
+      const isOverallPaused = campaign.status.includes("PAUSED");
+      
+      safeData.forEach((_: any, i: number) => {
+        statuses[i] = isOverallPaused ? "PAUSED" : "PENDING";
+      });
       safeLogs.forEach((log: any) => {
         if (log.rowIndex !== undefined) {
           statuses[log.rowIndex] = log.status;
         }
       });
       setRowStatuses(statuses);
+      rowStatusesRef.current = statuses;
       setDispatchLogs(safeLogs);
 
       // Update progress
@@ -466,6 +479,7 @@ export default function BulkSenderPage() {
       });
 
       setDispatchState("PAUSED"); // Treat as paused so user can resume
+      dispatchStateRef.current = "PAUSED";
       setCurrentStep(3); // Go straight to preview
       toast.success("Campaign loaded from history");
     } else {
@@ -476,14 +490,17 @@ export default function BulkSenderPage() {
   const handleNewData = (excelData: ExcelRow[]) => {
     setData(excelData);
     setRowStatuses({});
+    rowStatusesRef.current = {};
     setDispatchLogs([]);
     setDispatchProgress({ current: 0, total: excelData.length, success: 0, failed: 0 });
-    setActiveHistoryId(null);
     setDispatchState("IDLE");
+    dispatchStateRef.current = "IDLE";
+    setCurrentStep(1); // Move to content step
   };
 
   const handleResetAndNew = () => {
     setDispatchState("IDLE");
+    dispatchStateRef.current = "IDLE";
     setDispatchProgress({ current: 0, total: 0, success: 0, failed: 0 });
     setDispatchLogs([]);
     setRowStatuses({});
