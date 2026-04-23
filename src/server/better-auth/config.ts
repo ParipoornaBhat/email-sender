@@ -1,21 +1,22 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 
-import { env } from "@/env";
 import { db } from "@/server/db";
 
 export const auth = betterAuth({
   database: prismaAdapter(db, {
-    provider: "postgresql", // or "sqlite" or "mysql"
+    provider: "postgresql",
   }),
+  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  // Disable email/password for Google-only auth
   emailAndPassword: {
-    enabled: true,
+    enabled: false,
   },
   socialProviders: {
-    github: {
-      clientId: env.BETTER_AUTH_GITHUB_CLIENT_ID,
-      clientSecret: env.BETTER_AUTH_GITHUB_CLIENT_SECRET,
-      redirectURI: "http://localhost:3000/api/auth/callback/github",
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
+      redirectURI: process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/api/auth/callback/google",
     },
   },
 });

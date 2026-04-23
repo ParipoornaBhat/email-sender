@@ -89,7 +89,7 @@ export default function RootLayout({
 						<div className="fixed inset-0 -z-10 pointer-events-none">
 							<Background />
 						</div>
-						<main className="flex-1 pt-24 pb-12">
+						<main className="flex-1 pt-40 pb-12">
                             {children}
                         </main>
 						<Footer />

@@ -48,7 +48,7 @@ export default function Footer() {
 							<Image
 								src="/FLC.jpg"
 								alt="FLC Logo"
-								className="rounded-2xl shadow-xl"
+								className="rounded-2xl object-cover"
 								fill
 							/>
 						</div>
@@ -82,7 +82,7 @@ export default function Footer() {
 				</div>
 
 				<div className="mt-12 pt-8 border-t border-zinc-200 dark:border-zinc-800 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-zinc-500">
-					<p>© {new Date().getFullYear()} Finite Loop Club. Made with ❤️ for NMAMIT.</p>
+					<p>© {new Date().getFullYear()} Finite Loop Club. Made with ❤️ by Finite Loop Club.</p>
 					<div className="flex gap-6">
 						<Link href="/privacy" className="hover:underline">Privacy</Link>
 						<Link href="/terms" className="hover:underline">Terms</Link>

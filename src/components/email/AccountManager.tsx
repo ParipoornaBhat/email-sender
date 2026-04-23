@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Mail, Building2, ShieldCheck, Loader2 } from "lucide-react";
-import { addEmailAccount, getEmailAccounts, deleteEmailAccount } from "@/app/ref-cert-email/account-actions";
+import { Plus, Trash2, Mail, Building2, ShieldCheck, Loader2, Key } from "lucide-react";
+import { addEmailAccount, getEmailAccounts, deleteEmailAccount } from "@/app/bulk-sender/actions/accounts";
 import Modal from "@/components/ui/Modal";
 import { toast } from "sonner";
 
@@ -67,62 +67,73 @@ export default function AccountManager() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold text-zinc-900 dark:text-white lilita-font tracking-wider">Email Accounts</h2>
-          <p className="text-zinc-500 dark:text-zinc-400">Manage your connected email addresses and app passwords securely.</p>
+    <div className="space-y-10">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-1">
+          <h2 className="text-4xl font-black text-white lilita-font tracking-tight">Connected Accounts</h2>
+          <p className="text-zinc-500 font-medium text-lg">Securely manage your club email credentials.</p>
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white px-6 py-3 rounded-2xl font-bold shadow-lg shadow-fuchsia-500/20 transition-all active:scale-95"
+          className="btn-primary flex items-center gap-2 !px-8 !py-4 !rounded-2xl"
         >
-          <Plus size={20} />
+          <Plus size={22} />
           Add Account
         </button>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="animate-spin text-fuchsia-500" size={40} />
+        <div className="flex justify-center py-20">
+          <Loader2 className="animate-spin text-flc-orange" size={48} />
         </div>
       ) : accounts.length === 0 ? (
-        <div className="glass-card p-12 text-center">
-          <div className="inline-flex p-4 rounded-full bg-zinc-100 dark:bg-zinc-800 mb-4">
-            <Mail size={32} className="text-zinc-400" />
+        <div className="glass-card p-16 text-center space-y-8 !rounded-[3rem]">
+          <div className="mx-auto w-24 h-24 rounded-[2rem] bg-white/5 flex items-center justify-center">
+            <Mail size={40} className="text-zinc-600" />
           </div>
-          <h3 className="text-xl font-bold mb-2">No accounts connected</h3>
-          <p className="text-zinc-500 mb-6">Connect an email account with an app password to start sending bulk emails.</p>
+          <div className="space-y-3">
+            <h3 className="text-3xl font-black">No Senders Yet</h3>
+            <p className="text-zinc-500 text-lg max-w-md mx-auto leading-relaxed">
+              Connect a Gmail account with an App Password to begin your first campaign.
+            </p>
+          </div>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="text-fuchsia-500 font-bold hover:underline"
+            className="text-flc-orange font-black uppercase tracking-widest hover:underline text-sm"
           >
-            Add your first account
+            Connect your first account
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {accounts.map((acc) => (
-            <div key={acc.id} className="glass-card p-6 group">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 rounded-2xl bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400">
-                  <Mail size={24} />
-                </div>
-                <button
-                  onClick={() => handleDelete(acc.id)}
-                  className="p-2 rounded-xl text-zinc-400 hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                >
-                  <Trash2 size={18} />
-                </button>
+            <div key={acc.id} className="glass-card p-8 group !rounded-[2.5rem] relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4">
+                  <button
+                    onClick={() => handleDelete(acc.id)}
+                    className="p-2.5 rounded-xl text-zinc-600 hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={20} />
+                  </button>
               </div>
-              <h3 className="text-lg font-bold truncate">{acc.emailAddress}</h3>
-              <p className="text-zinc-500 dark:text-zinc-400 text-sm flex items-center gap-2 mt-1">
-                <Building2 size={14} />
-                {acc.orgName}
-              </p>
-              <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full w-fit">
-                <ShieldCheck size={14} />
-                Encrypted & Secure
+              
+              <div className="space-y-6">
+                <div className="w-14 h-14 rounded-2xl bg-flc-orange/10 text-flc-orange flex items-center justify-center shadow-inner">
+                  <Mail size={28} />
+                </div>
+                
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black truncate text-white">{acc.emailAddress}</h3>
+                  <p className="text-zinc-500 font-bold text-sm flex items-center gap-2">
+                    <Building2 size={14} className="text-zinc-600" />
+                    {acc.orgName}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 bg-emerald-500/10 px-4 py-1.5 rounded-full w-fit">
+                  <ShieldCheck size={14} />
+                  Verified & Secure
+                </div>
               </div>
             </div>
           ))}
@@ -132,64 +143,66 @@ export default function AccountManager() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title="Connect New Account"
+        title="Connect Sender"
       >
-        <form onSubmit={handleAddAccount} className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Email Address</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
-              <input
-                type="email"
-                required
-                className="w-full pl-12 pr-4 py-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 border-none focus:ring-2 focus:ring-fuchsia-500 transition-all"
-                placeholder="e.g. club@gmail.com"
-                value={formData.emailAddress}
-                onChange={(e) => setFormData({ ...formData, emailAddress: e.target.value })}
-              />
+        <form onSubmit={handleAddAccount} className="space-y-8 p-4">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-1">Gmail Address</label>
+              <div className="relative">
+                <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600" size={20} />
+                <input
+                  type="email"
+                  required
+                  className="w-full pl-14 pr-6 py-4 rounded-2xl bg-zinc-900/50 border border-white/5 focus:border-flc-orange/30 focus:ring-4 focus:ring-flc-orange/5 outline-none transition-all font-bold text-white"
+                  placeholder="club@gmail.com"
+                  value={formData.emailAddress}
+                  onChange={(e) => setFormData({ ...formData, emailAddress: e.target.value })}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">Organization Name</label>
-            <div className="relative">
-              <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
-              <input
-                type="text"
-                required
-                className="w-full pl-12 pr-4 py-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 border-none focus:ring-2 focus:ring-fuchsia-500 transition-all"
-                placeholder="e.g. Finite Loop Club"
-                value={formData.orgName}
-                onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
-              />
+            <div className="space-y-2">
+              <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-1">Display Name</label>
+              <div className="relative">
+                <Building2 className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600" size={20} />
+                <input
+                  type="text"
+                  required
+                  className="w-full pl-14 pr-6 py-4 rounded-2xl bg-zinc-900/50 border border-white/5 focus:border-flc-orange/30 focus:ring-4 focus:ring-flc-orange/5 outline-none transition-all font-bold text-white"
+                  placeholder="Finite Loop Club"
+                  value={formData.orgName}
+                  onChange={(e) => setFormData({ ...formData, orgName: e.target.value })}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-zinc-700 dark:text-zinc-300">App Password</label>
-            <div className="relative">
-              <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
-              <input
-                type="password"
-                required
-                className="w-full pl-12 pr-4 py-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800 border-none focus:ring-2 focus:ring-fuchsia-500 transition-all"
-                placeholder="•••• •••• •••• ••••"
-                value={formData.appPassword}
-                onChange={(e) => setFormData({ ...formData, appPassword: e.target.value })}
-              />
+            <div className="space-y-2">
+              <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-1">App Password</label>
+              <div className="relative">
+                <Key className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-600" size={20} />
+                <input
+                  type="password"
+                  required
+                  className="w-full pl-14 pr-6 py-4 rounded-2xl bg-zinc-900/50 border border-white/5 focus:border-flc-orange/30 focus:ring-4 focus:ring-flc-orange/5 outline-none transition-all font-bold text-white"
+                  placeholder="•••• •••• •••• ••••"
+                  value={formData.appPassword}
+                  onChange={(e) => setFormData({ ...formData, appPassword: e.target.value })}
+                />
+              </div>
+              <p className="text-[10px] font-bold text-zinc-500 mt-2 px-2 leading-relaxed">
+                Use your 16-character App Password from Google settings. It will be AES-256 encrypted.
+              </p>
             </div>
-            <p className="text-xs text-zinc-500 mt-1 px-2">
-              Generate this in your Google Account settings. This password is encrypted before being stored.
-            </p>
           </div>
 
           <button
             type="submit"
             disabled={submitting}
-            className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white py-4 rounded-2xl font-bold shadow-xl transition-all active:scale-[0.98] disabled:opacity-50 flex justify-center items-center gap-2"
+            className="btn-primary w-full !py-5 !rounded-[1.5rem] flex justify-center items-center gap-3 text-lg"
           >
-            {submitting ? <Loader2 className="animate-spin" size={20} /> : <Plus size={20} />}
-            Connect Account
+            {submitting ? <Loader2 className="animate-spin" size={22} /> : <Plus size={22} />}
+            Connect Securely
           </button>
         </form>
       </Modal>

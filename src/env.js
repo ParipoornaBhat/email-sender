@@ -11,16 +11,13 @@ export const env = createEnv({
       process.env.NODE_ENV === "production"
         ? z.string()
         : z.string().optional(),
-    BETTER_AUTH_GITHUB_CLIENT_ID: z.string(),
-    BETTER_AUTH_GITHUB_CLIENT_SECRET: z.string(),
+    BETTER_AUTH_URL: z.string().url().optional(),
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    GOOGLE_REDIRECT_URI: z.string().optional(),
     DATABASE_URL: z.string().url(),
     ENCRYPTION_KEY: z.string().min(32),
-    CLOUDINARY_CLOUD_NAME: z.string().optional(),
-    CLOUDINARY_API_KEY: z.string().optional(),
     CLOUDINARY_API_SECRET: z.string().optional(),
-    NODE_ENV: z
-      .enum(["development", "test", "production"])
-      .default("development"),
   },
 
   /**
@@ -29,7 +26,9 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    // NEXT_PUBLIC_CLIENTVAR: z.string(),
+    NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: z.string().optional(),
+    NEXT_PUBLIC_CLOUDINARY_API_KEY: z.string().optional(),
+    NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: z.string().optional(),
   },
 
   /**
@@ -38,15 +37,16 @@ export const env = createEnv({
    */
   runtimeEnv: {
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_GITHUB_CLIENT_ID: process.env.BETTER_AUTH_GITHUB_CLIENT_ID,
-    BETTER_AUTH_GITHUB_CLIENT_SECRET:
-      process.env.BETTER_AUTH_GITHUB_CLIENT_SECRET,
+    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     DATABASE_URL: process.env.DATABASE_URL,
     ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
-    CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
-    CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
     CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
-    NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+    NEXT_PUBLIC_CLOUDINARY_API_KEY: process.env.NEXT_PUBLIC_CLOUDINARY_API_KEY,
+    NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET: process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
