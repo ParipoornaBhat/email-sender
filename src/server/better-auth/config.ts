@@ -24,7 +24,7 @@ export const auth = betterAuth({
       clientId: env.GOOGLE_CLIENT_ID || "",
       clientSecret: env.GOOGLE_CLIENT_SECRET || "",
       // Fallback to dynamically constructed URI if not explicitly set
-      redirectURI: env.GOOGLE_REDIRECT_URI || `${getBaseURL()}/api/auth/callback/google`,
+      redirectURI: `${getBaseURL()}/api/auth/callback/google`,
     },
   },
 });
