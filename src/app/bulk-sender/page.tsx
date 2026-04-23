@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Mail, FileSpreadsheet, Image as ImageIcon, Eye, ArrowRight, ArrowLeft, Sparkles, Trash2 } from "lucide-react";
 import ExcelDropzone from "@/components/email/ExcelDropzone";
 import ImageConfigurator from "@/components/email/ImageConfigurator";
@@ -8,7 +8,7 @@ import BulkEmailPreview from "@/components/email/BulkEmailPreview";
 import type { ExcelRow, EmailTemplate, EmailAccount } from "./types";
 import { getEmailAccounts } from "./actions/accounts";
 import { getGalleryImages } from "./actions/gallery";
-import { dispatchBulkEmails } from "./actions/dispatch";
+import { initializeCampaign, dispatchSingleEmail, updateCampaignProgress } from "./actions/dispatch";
 import { getAgreementStatus, acceptTerms } from "./actions/terms";
 import RichTextEditor from "@/components/email/RichTextEditor";
 import { toast } from "sonner";
@@ -29,7 +29,7 @@ export default function BulkSenderPage() {
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [galleryImages, setGalleryImages] = useState<any[]>([]);
-  
+
   const [template, setTemplate] = useState<EmailTemplate>({
     subject: "Hello {Name}!",
     bodyHtml: "<h1>Welcome!</h1><p>This is a custom email for {Name}.</p>",
@@ -38,6 +38,14 @@ export default function BulkSenderPage() {
 
   const [isSending, setIsSending] = useState(false);
   const [editorMode, setEditorMode] = useState<"visual" | "html">("visual");
+
+  // Dispatch Tracking State
+  const [dispatchState, setDispatchState] = useState<"IDLE" | "SENDING" | "PAUSED" | "ERROR_PAUSED" | "CANCELLED" | "COMPLETED">("IDLE");
+  const [dispatchProgress, setDispatchProgress] = useState({ current: 0, total: 0, success: 0, failed: 0 });
+  const [dispatchLogs, setDispatchLogs] = useState<any[]>([]);
+  const [currentlyProcessing, setCurrentlyProcessing] = useState<string | null>(null);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const actionRequested = useRef<"NONE" | "CANCEL" | "PAUSE" | "PAUSE_ERROR">("NONE");
 
   useEffect(() => {
     // Load from localStorage on mount
@@ -54,7 +62,7 @@ export default function BulkSenderPage() {
         getEmailAccounts(),
         getGalleryImages()
       ]);
-      
+
       if (accRes.success && accRes.data) {
         setAccounts(accRes.data as EmailAccount[]);
         if (accRes.data.length > 0) setSelectedAccountId(accRes.data[0]!.id);
@@ -64,8 +72,8 @@ export default function BulkSenderPage() {
     fetchData();
 
     const checkAgreement = async () => {
-        const res = await getAgreementStatus();
-        if (res.success) setHasAgreedTerms(res.agreed ?? false);
+      const res = await getAgreementStatus();
+      if (res.success) setHasAgreedTerms(res.agreed ?? false);
     };
     checkAgreement();
   }, []);
@@ -79,27 +87,179 @@ export default function BulkSenderPage() {
 
   const handleSend = async () => {
     if (!selectedAccountId) {
-        toast.error("Please select an email account");
-        return;
+      toast.error("Please select an email account");
+      return;
     }
+
+    const isResuming = dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED";
+
+    setDispatchState("SENDING");
+    actionRequested.current = "NONE";
     setIsSending(true);
-    const res = await dispatchBulkEmails({
-        accountId: selectedAccountId,
-        data,
-        template,
-    });
-    
-    if (res.success) {
-        toast.success(res.message || "Bulk send completed!");
-        localStorage.removeItem("bulk-sender-data");
-        localStorage.removeItem("bulk-sender-template");
-        localStorage.removeItem("bulk-sender-step");
-        setCurrentStep(0);
-        setData([]);
-    } else {
-        toast.error(res.error || "Failed to send bulk emails");
+
+    let currentHistoryId = activeHistoryId;
+
+    if (!isResuming) {
+      setDispatchProgress({ current: 0, total: data.length, success: 0, failed: 0 });
+      setDispatchLogs([]);
+
+      // 1. Initialize in Database first
+      const initRes = await initializeCampaign({ accountId: selectedAccountId, template, data });
+      if (initRes.success && initRes.historyId) {
+        currentHistoryId = initRes.historyId;
+        setActiveHistoryId(initRes.historyId);
+      } else {
+        toast.error("Failed to initialize campaign tracking in database.");
+        setIsSending(false);
+        setDispatchState("IDLE");
+        return;
+      }
+    } else if (dispatchState === "ERROR_PAUSED" && currentHistoryId) {
+      // If resuming from an error, update the DB with the potentially edited data first
+      await updateCampaignProgress({
+        historyId: currentHistoryId,
+        logs: dispatchLogs,
+        status: "PROCESSING",
+        excelData: data // push the edited data
+      });
     }
+
+    const logs = isResuming ? [...dispatchLogs] : [];
+    let successCount = isResuming ? dispatchProgress.success : 0;
+    let failCount = isResuming ? dispatchProgress.failed : 0;
+    const startIndex = isResuming ? dispatchProgress.current : 0;
+
+    for (let i = startIndex; i < data.length; i++) {
+      if (actionRequested.current !== "NONE") {
+        break; // Cancel or Pause requested
+      }
+
+      const row = data[i]!;
+      const targetEmail = (row.Email || row.email || Object.values(row)[0]) as string;
+      setCurrentlyProcessing(targetEmail);
+
+      const result = await dispatchSingleEmail({
+        accountId: selectedAccountId,
+        row,
+        template,
+        rowIndex: i + 1
+      });
+
+      logs.push(result.log);
+      setDispatchLogs([...logs]);
+
+      if (result.success) {
+        successCount++;
+      } else {
+        failCount++;
+        // On error, auto-pause the loop
+        actionRequested.current = "PAUSE_ERROR";
+      }
+
+      setDispatchProgress(prev => ({
+        ...prev,
+        current: i + 1,
+        success: successCount,
+        failed: failCount
+      }));
+
+      setCurrentlyProcessing(null);
+
+      // Update Database after every single email
+      if (currentHistoryId) {
+        await updateCampaignProgress({
+          historyId: currentHistoryId,
+          logs: logs,
+          status: "PROCESSING"
+        });
+      }
+
+      // 1 second delay for UI visualization
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      if ((actionRequested.current as string) === "PAUSE_ERROR") {
+        break; // Break loop immediately after updating DB
+      }
+    }
+
+    if ((actionRequested.current as string) === "PAUSE") {
+      setDispatchState("PAUSED");
+      if (currentHistoryId) {
+        await updateCampaignProgress({ historyId: currentHistoryId, logs, status: "PAUSED" });
+      }
+      setIsSending(false);
+      return;
+    }
+
+    if ((actionRequested.current as string) === "PAUSE_ERROR") {
+      setDispatchState("ERROR_PAUSED");
+      if (currentHistoryId) {
+        await updateCampaignProgress({ historyId: currentHistoryId, logs, status: "ERROR_PAUSED" });
+      }
+      setIsSending(false);
+      return;
+    }
+
+    const isCancelled = (actionRequested.current as string) === "CANCEL";
+    const finalStatus = isCancelled
+      ? `CANCELLED (${successCount}/${data.length} sent)`
+      : failCount === 0 ? "COMPLETED" : "PARTIAL";
+
+    setDispatchState(isCancelled ? "CANCELLED" : "COMPLETED");
+
+    if (currentHistoryId) {
+      await updateCampaignProgress({
+        historyId: currentHistoryId,
+        logs,
+        status: finalStatus
+      });
+    }
+
+    if (isCancelled) {
+      toast.info(`Campaign cancelled. Sent ${successCount} emails.`);
+    } else {
+      toast.success(`Campaign finished! Sent ${successCount}, Failed ${failCount}`);
+    }
+
     setIsSending(false);
+  };
+
+  const handleCancelDispatch = () => {
+    actionRequested.current = "CANCEL";
+    if (dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") {
+      setDispatchState("CANCELLED");
+      if (activeHistoryId) {
+        updateCampaignProgress({
+          historyId: activeHistoryId,
+          logs: dispatchLogs,
+          status: `CANCELLED (${dispatchProgress.success}/${data.length} sent)`
+        });
+      }
+    } else {
+      toast.info("Cancelling... waiting for current email to finish.");
+    }
+  };
+
+  const handlePauseDispatch = () => {
+    actionRequested.current = "PAUSE";
+    toast.info("Pausing... waiting for current email to finish.");
+  };
+
+  const handleDataEdit = (rowIndex: number, newData: any) => {
+    setData(prev => {
+      const arr = [...prev];
+      arr[rowIndex] = newData;
+      return arr;
+    });
+  };
+
+  const handleResetAndNew = () => {
+    setDispatchState("IDLE");
+    setDispatchProgress({ current: 0, total: 0, success: 0, failed: 0 });
+    setDispatchLogs([]);
+    setCurrentlyProcessing(null);
+    setActiveHistoryId(null);
+    actionRequested.current = "NONE";
   };
 
   const nextStep = () => {
@@ -126,20 +286,19 @@ export default function BulkSenderPage() {
       {/* Progress Stepper */}
       <div className="flex justify-between items-center mb-20 max-w-4xl mx-auto px-8 relative">
         <div className="absolute top-7 left-0 w-full h-[2px] bg-white/5 -z-10" />
-        <div 
-          className="absolute top-7 left-0 h-[2px] bg-flc-orange -z-10 transition-all duration-700 ease-in-out" 
+        <div
+          className="absolute top-7 left-0 h-[2px] bg-flc-orange -z-10 transition-all duration-700 ease-in-out"
           style={{ width: `${(currentStep / (STEPS.length - 1)) * 100}%` }}
         />
-        
+
         {STEPS.map((step, idx) => (
           <div key={step.id} className="flex flex-col items-center gap-4 relative px-4 group">
-            <button 
+            <button
               onClick={() => setCurrentStep(idx)}
-              className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center transition-all duration-500 relative z-10 cursor-pointer ${
-                idx <= currentStep 
-                  ? "bg-flc-orange text-white shadow-[0_0_30px_rgba(242,140,40,0.3)] scale-110" 
-                  : "bg-flc-purple-dark text-zinc-600 border-2 border-white/5 hover:border-flc-orange/30"
-              }`}
+              className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center transition-all duration-500 relative z-10 cursor-pointer ${idx <= currentStep
+                ? "bg-flc-orange text-white shadow-[0_0_30px_rgba(242,140,40,0.3)] scale-110"
+                : "bg-flc-purple-dark text-zinc-600 border-2 border-white/5 hover:border-flc-orange/30"
+                }`}
             >
               <step.icon className="w-5 h-5 sm:w-7 sm:h-7" />
             </button>
@@ -165,7 +324,7 @@ export default function BulkSenderPage() {
                 <h2 className="text-4xl sm:text-6xl font-black lilita-font text-white tracking-tight">Campaign Data</h2>
                 <p className="text-zinc-500 text-lg sm:text-xl font-medium">Select your sender and upload the recipient list.</p>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
                 <div className="space-y-4">
                   <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">1. Select Sender Account</label>
@@ -189,18 +348,18 @@ export default function BulkSenderPage() {
 
               {data.length > 0 && (
                 <div className="glass-card p-8 !rounded-[2rem] border-emerald-500/10">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                                <Sparkles size={24} />
-                            </div>
-                            <div>
-                                <h4 className="font-black text-white uppercase tracking-wider">Data Loaded</h4>
-                                <p className="text-zinc-500 text-sm font-bold">{data.length} recipients found</p>
-                            </div>
-                        </div>
-                        <button onClick={() => setData([])} className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline">Clear Data</button>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                        <Sparkles size={24} />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-white uppercase tracking-wider">Data Loaded</h4>
+                        <p className="text-zinc-500 text-sm font-bold">{data.length} recipients found</p>
+                      </div>
                     </div>
+                    <button onClick={() => setData([])} className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline">Clear Data</button>
+                  </div>
                 </div>
               )}
             </div>
@@ -208,147 +367,145 @@ export default function BulkSenderPage() {
 
           {currentStep === 1 && (
             <div className="space-y-10 max-w-7xl mx-auto">
-               <div className="grid grid-cols-1 lg:grid-cols-5 gap-12">
-                  <div className="lg:col-span-3 space-y-8">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-flc-orange/10 flex items-center justify-center text-flc-orange shadow-inner">
-                          <Mail className="w-5 h-5 sm:w-6 sm:h-6" />
-                        </div>
-                        <h3 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Compose Email</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-12">
+                <div className="lg:col-span-3 space-y-8">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-flc-orange/10 flex items-center justify-center text-flc-orange shadow-inner">
+                        <Mail className="w-5 h-5 sm:w-6 sm:h-6" />
                       </div>
-                      
-                      <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                        <button
-                          onClick={() => setEditorMode("visual")}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                            editorMode === "visual" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          <Type size={14} />
-                          Visual
-                        </button>
-                        <button
-                          onClick={() => setEditorMode("html")}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
-                            editorMode === "html" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          <Code2 size={14} />
-                          HTML
-                        </button>
-                      </div>
+                      <h3 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Compose Email</h3>
                     </div>
-                    
-                    <div className="space-y-8 glass-card p-10 !rounded-[3rem]">
-                      <div className="space-y-3">
-                        <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">Subject Line</label>
-                        <input
-                          type="text"
-                          value={template.subject}
-                          onChange={(e) => setTemplate({ ...template, subject: e.target.value })}
-                          className="w-full px-8 py-5 rounded-2xl bg-white/5 border border-white/5 focus:border-flc-orange/30 focus:ring-4 focus:ring-flc-orange/5 outline-none text-xl font-bold text-white transition-all"
-                          placeholder="e.g. Invitation for {Name}"
-                        />
-                      </div>
-                      
-                      <div className="space-y-3">
-                        <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">
-                          {editorMode === "visual" ? "Message Content" : "HTML Source Code"}
-                        </label>
-                        
-                        <div className="rounded-[2.5rem] overflow-hidden shadow-2xl">
-                          {editorMode === "visual" ? (
-                            <RichTextEditor
-                              value={template.bodyHtml}
-                              onChange={(val) => setTemplate({ ...template, bodyHtml: val })}
-                            />
-                          ) : (
-                            <div className="h-[450px] border border-white/5 bg-zinc-950">
-                              <Editor
-                                height="100%"
-                                defaultLanguage="html"
-                                theme="vs-dark"
-                                value={template.bodyHtml}
-                                onChange={(val) => setTemplate({ ...template, bodyHtml: val || "" })}
-                                options={{ 
-                                    minimap: { enabled: false }, 
-                                    fontSize: 16,
-                                    padding: { top: 30, bottom: 30 },
-                                    wordWrap: "on",
-                                    fontFamily: "JetBrains Mono"
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
+
+                    <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+                      <button
+                        onClick={() => setEditorMode("visual")}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${editorMode === "visual" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
+                          }`}
+                      >
+                        <Type size={14} />
+                        Visual
+                      </button>
+                      <button
+                        onClick={() => setEditorMode("html")}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${editorMode === "html" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
+                          }`}
+                      >
+                        <Code2 size={14} />
+                        HTML
+                      </button>
                     </div>
                   </div>
 
-                  <div className="lg:col-span-2 space-y-8">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 shadow-inner">
-                        <Eye className="w-5 h-5 sm:w-6 sm:h-6" />
+                  <div className="space-y-8 glass-card p-10 !rounded-[3rem]">
+                    <div className="space-y-3">
+                      <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">Subject Line</label>
+                      <input
+                        type="text"
+                        value={template.subject}
+                        onChange={(e) => setTemplate({ ...template, subject: e.target.value })}
+                        className="w-full px-8 py-5 rounded-2xl bg-white/5 border border-white/5 focus:border-flc-orange/30 focus:ring-4 focus:ring-flc-orange/5 outline-none text-xl font-bold text-white transition-all"
+                        placeholder="e.g. Invitation for {Name}"
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">
+                        {editorMode === "visual" ? "Message Content" : "HTML Source Code"}
+                      </label>
+
+                      <div className="rounded-[2.5rem] overflow-hidden shadow-2xl">
+                        {editorMode === "visual" ? (
+                          <RichTextEditor
+                            value={template.bodyHtml}
+                            onChange={(val) => setTemplate({ ...template, bodyHtml: val })}
+                          />
+                        ) : (
+                          <div className="h-[450px] border border-white/5 bg-zinc-950">
+                            <Editor
+                              height="100%"
+                              defaultLanguage="html"
+                              theme="vs-dark"
+                              value={template.bodyHtml}
+                              onChange={(val) => setTemplate({ ...template, bodyHtml: val || "" })}
+                              options={{
+                                minimap: { enabled: false },
+                                fontSize: 16,
+                                padding: { top: 30, bottom: 30 },
+                                wordWrap: "on",
+                                fontFamily: "JetBrains Mono"
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
-                      <h3 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Live Preview</h3>
                     </div>
-                    
-                    <div className="bg-white rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] h-[650px] flex flex-col overflow-hidden border border-zinc-200">
-                        {/* Gmail Browser Bar */}
-                        <div className="bg-zinc-100 px-6 py-3 flex items-center gap-4 border-b border-zinc-200">
-                            <div className="flex gap-1.5">
-                                <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
-                                <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
-                                <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
+                  </div>
+                </div>
+
+                <div className="lg:col-span-2 space-y-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500 shadow-inner">
+                      <Eye className="w-5 h-5 sm:w-6 sm:h-6" />
+                    </div>
+                    <h3 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Live Preview</h3>
+                  </div>
+
+                  <div className="bg-white rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] h-[650px] flex flex-col overflow-hidden border border-zinc-200">
+                    {/* Gmail Browser Bar */}
+                    <div className="bg-zinc-100 px-6 py-3 flex items-center gap-4 border-b border-zinc-200">
+                      <div className="flex gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
+                        <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
+                      </div>
+                      <div className="bg-white px-4 py-1 rounded-md border border-zinc-200 flex-1 text-[10px] text-zinc-400 font-medium truncate">
+                        mail.google.com/mail/u/0/#inbox
+                      </div>
+                    </div>
+
+                    {/* Gmail Content */}
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      {/* Toolbar */}
+                      <div className="px-6 py-3 border-b border-zinc-100 flex items-center gap-6 text-zinc-500">
+                        <ArrowLeft size={18} />
+                        <div className="w-px h-4 bg-zinc-200" />
+                        <Trash2 size={18} />
+                        <Mail size={18} />
+                      </div>
+
+                      <div className="p-8 space-y-8 overflow-y-auto">
+                        {/* Subject */}
+                        <h4 className="text-2xl font-medium text-zinc-900 px-2">
+                          {template.subject.replace(/{(\w+)}/g, "John Doe")}
+                        </h4>
+
+                        {/* Sender Info */}
+                        <div className="flex items-start gap-4">
+                          <div className="w-10 h-10 rounded-full bg-zinc-200 flex items-center justify-center text-zinc-500 font-bold">
+                            F
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className="font-bold text-zinc-900">
+                                {accounts.find(a => a.id === selectedAccountId)?.orgName || "Finite Loop Club"}
+                                <span className="font-normal text-zinc-500 ml-2">&lt;{accounts.find(a => a.id === selectedAccountId)?.emailAddress || "sender@flc.com"}&gt;</span>
+                              </p>
+                              <p className="text-xs text-zinc-500">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                             </div>
-                            <div className="bg-white px-4 py-1 rounded-md border border-zinc-200 flex-1 text-[10px] text-zinc-400 font-medium truncate">
-                                mail.google.com/mail/u/0/#inbox
-                            </div>
+                            <p className="text-xs text-zinc-500 mt-0.5">to me</p>
+                          </div>
                         </div>
 
-                        {/* Gmail Content */}
-                        <div className="flex-1 flex flex-col overflow-hidden">
-                            {/* Toolbar */}
-                            <div className="px-6 py-3 border-b border-zinc-100 flex items-center gap-6 text-zinc-500">
-                                <ArrowLeft size={18} />
-                                <div className="w-px h-4 bg-zinc-200" />
-                                <Trash2 size={18} />
-                                <Mail size={18} />
-                            </div>
-
-                            <div className="p-8 space-y-8 overflow-y-auto">
-                                {/* Subject */}
-                                <h4 className="text-2xl font-medium text-zinc-900 px-2">
-                                    {template.subject.replace(/{(\w+)}/g, "John Doe")}
-                                </h4>
-
-                                {/* Sender Info */}
-                                <div className="flex items-start gap-4">
-                                    <div className="w-10 h-10 rounded-full bg-zinc-200 flex items-center justify-center text-zinc-500 font-bold">
-                                        F
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between">
-                                            <p className="font-bold text-zinc-900">
-                                                {accounts.find(a => a.id === selectedAccountId)?.orgName || "Finite Loop Club"} 
-                                                <span className="font-normal text-zinc-500 ml-2">&lt;{accounts.find(a => a.id === selectedAccountId)?.emailAddress || "sender@flc.com"}&gt;</span>
-                                            </p>
-                                            <p className="text-xs text-zinc-500">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                        </div>
-                                        <p className="text-xs text-zinc-500 mt-0.5">to me</p>
-                                    </div>
-                                </div>
-
-                                {/* Body */}
-                                <div 
-                                  className="prose prose-zinc max-w-none text-zinc-800 email-preview-content"
-                                  dangerouslySetInnerHTML={{ __html: template.bodyHtml.replace(/{(\w+)}/g, `<span class="bg-blue-100 text-blue-600 px-1 rounded font-bold">[$1]</span>`) }}
-                                />
-                            </div>
-                        </div>
+                        {/* Body */}
+                        <div
+                          className="prose prose-zinc max-w-none text-zinc-800 email-preview-content"
+                          dangerouslySetInnerHTML={{ __html: template.bodyHtml.replace(/{(\w+)}/g, `<span class="bg-blue-100 text-blue-600 px-1 rounded font-bold">[$1]</span>`) }}
+                        />
+                      </div>
                     </div>
-                    <style jsx global>{`
+                  </div>
+                  <style jsx global>{`
                         .email-preview-content h1 { font-size: 2rem !important; font-weight: 800 !important; margin-bottom: 1rem !important; }
                         .email-preview-content h2 { font-size: 1.5rem !important; font-weight: 700 !important; margin-bottom: 0.75rem !important; }
                         .email-preview-content h3 { font-size: 1.25rem !important; font-weight: 600 !important; margin-bottom: 0.5rem !important; }
@@ -358,8 +515,8 @@ export default function BulkSenderPage() {
                         .email-preview-content strong { font-weight: 700 !important; }
                         .email-preview-content em { font-style: italic !important; }
                     `}</style>
-                  </div>
-               </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -370,11 +527,11 @@ export default function BulkSenderPage() {
                 <p className="text-zinc-500 text-lg sm:text-xl font-medium">Map dynamic text to your certificate images.</p>
               </div>
               <div className="glass-card p-2 sm:p-4 !rounded-[2rem] sm:!rounded-[4rem]">
-                <ImageConfigurator 
-                    configs={template.images} 
-                    onChange={(imgs) => setTemplate({ ...template, images: imgs })}
-                    availableImages={galleryImages}
-                    excelHeaders={data.length > 0 ? Object.keys(data[0]!) : []}
+                <ImageConfigurator
+                  configs={template.images}
+                  onChange={(imgs) => setTemplate({ ...template, images: imgs })}
+                  availableImages={galleryImages}
+                  excelHeaders={data.length > 0 ? Object.keys(data[0]!) : []}
                 />
               </div>
             </div>
@@ -382,20 +539,29 @@ export default function BulkSenderPage() {
 
           {currentStep === 3 && (
             <div className="max-w-6xl mx-auto">
-              <BulkEmailPreview 
-                data={data} 
-                template={template} 
-                onConfirm={handleSend} 
+              <BulkEmailPreview
+                data={data}
+                template={template}
+                onConfirm={handleSend}
                 isSending={isSending}
                 hasAgreedTerms={hasAgreedTerms}
+                dispatchState={dispatchState}
+                dispatchProgress={dispatchProgress}
+                dispatchLogs={dispatchLogs}
+                currentlyProcessing={currentlyProcessing}
+                onCancelDispatch={handleCancelDispatch}
+                onPauseDispatch={handlePauseDispatch}
+                onResumeDispatch={handleSend}
+                onResetAndNew={handleResetAndNew}
+                onDataEdit={handleDataEdit}
                 onAgree={async () => {
-                    const res = await acceptTerms();
-                    if (res.success) {
-                        setHasAgreedTerms(true);
-                        window.location.reload();
-                    } else {
-                        toast.error(res.error || "Failed to accept terms");
-                    }
+                  const res = await acceptTerms();
+                  if (res.success) {
+                    setHasAgreedTerms(true);
+                    window.location.reload();
+                  } else {
+                    toast.error(res.error || "Failed to accept terms");
+                  }
                 }}
               />
             </div>
@@ -412,7 +578,7 @@ export default function BulkSenderPage() {
             <ArrowLeft className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
             <span className="hidden sm:inline">Back</span>
           </button>
-          
+
           {currentStep < STEPS.length - 1 && (
             <button
               onClick={nextStep}

@@ -5,6 +5,8 @@ import { authClient } from "@/server/better-auth/client";
 import { Shield, Mail } from "lucide-react";
 import { toast } from "sonner";
 
+import Image from "next/image";
+
 export default function SignInPage() {
   const handleGoogleSignIn = async () => {
     await authClient.signIn.social({
@@ -19,8 +21,8 @@ export default function SignInPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] px-4">
       <div className="glass-card p-12 max-w-md w-full text-center space-y-8 animate-in fade-in zoom-in duration-500">
-        <div className="mx-auto w-20 h-20 rounded-[2rem] bg-flc-orange flex items-center justify-center shadow-2xl shadow-flc-orange/40">
-          <Shield size={40} className="text-white" />
+        <div className="mx-auto w-24 h-24 relative rounded-[2rem] flex items-center justify-center shadow-2xl shadow-black/20 overflow-hidden">
+          <Image src="/FLC.jpg" alt="FLC Logo" fill className="object-cover" />
         </div>
         
         <div className="space-y-2">

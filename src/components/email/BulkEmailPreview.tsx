@@ -17,6 +17,15 @@ interface BulkEmailPreviewProps {
     readOnly?: boolean;
     hasAgreedTerms?: boolean;
     onAgree?: () => Promise<void>;
+    dispatchState?: "IDLE" | "SENDING" | "PAUSED" | "ERROR_PAUSED" | "CANCELLED" | "COMPLETED";
+    dispatchProgress?: { current: number; total: number; success: number; failed: number };
+    dispatchLogs?: { email: string; status: string; error?: string }[];
+    currentlyProcessing?: string | null;
+    onCancelDispatch?: () => void;
+    onPauseDispatch?: () => void;
+    onResumeDispatch?: () => void;
+    onResetAndNew?: () => void;
+    onDataEdit?: (rowIndex: number, newData: any) => void;
 }
 
 export default function BulkEmailPreview({
@@ -26,12 +35,22 @@ export default function BulkEmailPreview({
     isSending,
     readOnly = false,
     hasAgreedTerms = false,
-    onAgree
+    onAgree,
+    dispatchState = "IDLE",
+    dispatchProgress = { current: 0, total: 0, success: 0, failed: 0 },
+    dispatchLogs = [],
+    currentlyProcessing = null,
+    onCancelDispatch,
+    onPauseDispatch,
+    onResumeDispatch,
+    onResetAndNew,
+    onDataEdit
 }: BulkEmailPreviewProps) {
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [searchTerm, setSearchTerm] = useState("");
     const [localAcceptedTerms, setLocalAcceptedTerms] = useState(false);
     const [isAgreeing, setIsAgreeing] = useState(false);
+    const [editData, setEditData] = useState<any>(null); // For inline error editing
 
     const interpolate = (text: string, row: ExcelRow) => {
         return text.replace(/{([^}]+)}/g, (_, key) => {
@@ -51,6 +70,176 @@ export default function BulkEmailPreview({
 
     const interpolatedSubject = currentRow ? interpolate(template.subject, currentRow) : "";
     const interpolatedBody = currentRow ? interpolate(template.bodyHtml, currentRow) : "";
+
+    const terminalEndRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        if (terminalEndRef.current) {
+            terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+        if (dispatchState === "ERROR_PAUSED" && data[dispatchProgress.current - 1]) {
+            setEditData(data[dispatchProgress.current - 1]);
+        }
+    }, [dispatchLogs, dispatchState, dispatchProgress.current, data]);
+
+    if (dispatchState !== "IDLE") {
+        return (
+            <div className="space-y-8 animate-in fade-in duration-700">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2 sm:px-4">
+                    <div className="space-y-2">
+                        <h3 className="text-3xl sm:text-5xl font-black text-white lilita-font tracking-tight">Live Dispatch</h3>
+                        <p className="text-zinc-500 font-medium text-base sm:text-lg">Real-time progress of your campaign.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                        {dispatchState === "ERROR_PAUSED" && (
+                            <button 
+                                onClick={() => {
+                                    if (onDataEdit && editData) {
+                                        onDataEdit(dispatchProgress.current - 1, editData);
+                                    }
+                                    onResumeDispatch?.();
+                                }}
+                                className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all shadow-[0_0_20px_rgba(242,140,40,0.2)]"
+                            >
+                                Save & Retry
+                            </button>
+                        )}
+                        {dispatchState === "PAUSED" && (
+                            <button 
+                                onClick={onResumeDispatch}
+                                className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all"
+                            >
+                                Resume Campaign
+                            </button>
+                        )}
+                        {dispatchState === "SENDING" && (
+                            <button 
+                                onClick={onPauseDispatch}
+                                className="bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-zinc-500 hover:text-white transition-all"
+                            >
+                                Pause
+                            </button>
+                        )}
+                        {(dispatchState === "SENDING" || dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") && (
+                            <button 
+                                onClick={() => {
+                                    if (window.confirm("Are you sure you want to cancel the rest of the campaign? This cannot be undone.")) {
+                                        onCancelDispatch?.();
+                                    }
+                                }}
+                                className="bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-full font-black uppercase text-xs tracking-widest hover:bg-red-500 hover:text-white transition-all"
+                            >
+                                Cancel
+                            </button>
+                        )}
+                        {(dispatchState === "COMPLETED" || dispatchState === "CANCELLED") && (
+                            <button 
+                                onClick={onResetAndNew}
+                                className="btn-primary px-6 py-3 !rounded-full !text-xs"
+                            >
+                                Start New Campaign
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                <div className="glass-card !rounded-[2.5rem] border-white/5 bg-black/40 overflow-hidden flex flex-col p-4 sm:p-8 gap-8">
+                    {/* Progress Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">Status</p>
+                            <p className="text-xl font-black text-white truncate">{dispatchState}</p>
+                        </div>
+                        <div className="bg-blue-500/10 p-4 rounded-2xl border border-blue-500/20">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">Progress</p>
+                            <p className="text-xl font-black text-blue-500 truncate">{dispatchProgress.current} / {dispatchProgress.total}</p>
+                        </div>
+                        <div className="bg-green-500/10 p-4 rounded-2xl border border-green-500/20">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-green-500 mb-1">Success</p>
+                            <p className="text-xl font-black text-green-500">{dispatchProgress.success}</p>
+                        </div>
+                        <div className="bg-red-500/10 p-4 rounded-2xl border border-red-500/20">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Failed</p>
+                            <p className="text-xl font-black text-red-500">{dispatchProgress.failed}</p>
+                        </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-white/5 h-4 rounded-full overflow-hidden relative">
+                        <div 
+                            className={`absolute top-0 left-0 h-full transition-all duration-300 ${dispatchState === "CANCELLED" || dispatchState === "ERROR_PAUSED" ? "bg-red-500" : "bg-flc-orange"}`}
+                            style={{ width: `${dispatchProgress.total > 0 ? (dispatchProgress.current / dispatchProgress.total) * 100 : 0}%` }}
+                        />
+                    </div>
+                    
+                    {/* Error Editor UI */}
+                    {dispatchState === "ERROR_PAUSED" && editData && (
+                        <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6 flex flex-col gap-4 animate-in slide-in-from-top-4">
+                            <h4 className="text-red-500 font-black tracking-widest uppercase text-xs flex items-center gap-2">
+                                <span className="bg-red-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[10px]">!</span>
+                                Action Required: Fix data and retry
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {Object.entries(editData).map(([key, value]) => (
+                                    <div key={key} className="space-y-1">
+                                        <label className="text-[10px] font-black uppercase text-zinc-500">{key}</label>
+                                        <input 
+                                            type="text"
+                                            value={String(value || "")}
+                                            onChange={(e) => setEditData({ ...editData, [key]: e.target.value })}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-flc-orange outline-none transition-colors"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Terminal Window */}
+                    <div className="flex-1 min-h-[400px] max-h-[500px] bg-black rounded-2xl border border-white/10 p-4 sm:p-6 font-mono text-xs sm:text-sm overflow-y-auto custom-scrollbar flex flex-col gap-3">
+                        {dispatchLogs.map((log, idx) => (
+                            <div key={idx} className="flex items-start gap-3">
+                                <span className="text-zinc-600 mt-1">[{String(idx + 1).padStart(3, '0')}]</span>
+                                {log.status === "SUCCESS" ? (
+                                    <span className="text-green-400 flex items-start gap-2 leading-relaxed">
+                                        <CheckCircle2 size={16} className="mt-1 shrink-0" /> 
+                                        <span>Successfully sent to <span className="font-bold text-white">{log.email}</span></span>
+                                    </span>
+                                ) : (
+                                    <span className="text-red-400 flex items-start gap-2 leading-relaxed">
+                                        <span className="font-black mt-0.5 shrink-0">✗</span> 
+                                        <span>Failed to send to <span className="font-bold text-white">{log.email}</span>: {log.error}</span>
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                        {dispatchState === "SENDING" && currentlyProcessing && (
+                            <div className="flex items-center gap-3 text-zinc-500 animate-pulse mt-4">
+                                <Loader2 size={16} className="animate-spin" />
+                                Processing recipient {dispatchProgress.current + 1} of {dispatchProgress.total} ({currentlyProcessing})...
+                            </div>
+                        )}
+                        {dispatchState === "PAUSED" && (
+                            <div className="text-zinc-400 font-bold mt-4">
+                                &gt; CAMPAIGN PAUSED BY USER.
+                            </div>
+                        )}
+                        {dispatchState === "CANCELLED" && (
+                            <div className="text-red-500 font-bold mt-4">
+                                &gt; CAMPAIGN CANCELLED BY USER.
+                            </div>
+                        )}
+                        {dispatchState === "COMPLETED" && (
+                            <div className="text-green-500 font-bold mt-4">
+                                &gt; CAMPAIGN COMPLETED SUCCESSFULLY.
+                            </div>
+                        )}
+                        <div ref={terminalEndRef} />
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-8 animate-in fade-in duration-700">
