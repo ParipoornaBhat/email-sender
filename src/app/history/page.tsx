@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getEmailHistory } from "./actions";
-import { History, Calendar, Mail, CheckCircle2, XCircle, AlertTriangle, ChevronRight, Eye, Sparkles } from "lucide-react";
+import { History, Calendar, Mail, CheckCircle2, XCircle, AlertTriangle, ChevronRight, Eye, Sparkles, Pause } from "lucide-react";
 import { toast } from "sonner";
 import BulkEmailPreview from "@/components/email/BulkEmailPreview";
 import Modal from "@/components/ui/Modal";
@@ -28,6 +28,9 @@ export default function HistoryPage() {
   }, []);
 
   const StatusIcon = ({ status }: { status: string }) => {
+    if (status.includes("CANCELLED")) return <XCircle className="text-zinc-500" size={18} />;
+    if (status.includes("PAUSED")) return <Pause className="text-amber-500" size={18} />;
+    
     switch (status) {
       case "COMPLETED": return <CheckCircle2 className="text-emerald-500" size={18} />;
       case "FAILED": return <XCircle className="text-red-500" size={18} />;
@@ -35,7 +38,6 @@ export default function HistoryPage() {
       default: return <AlertTriangle className="text-amber-500" size={18} />;
     }
   };
-
   const selectedData = React.useMemo(() => {
     if (!selectedRecord) return null;
     

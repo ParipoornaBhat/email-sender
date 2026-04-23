@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import {
     ChevronLeft, ChevronRight, Send, User, Mail,
     Image as ImageIcon, Sparkles, Loader2, Search,
-    CheckCircle2, Paperclip, FileImage, ExternalLink, X, Edit2, Pause
+    CheckCircle2, Paperclip, FileImage, ExternalLink, X, Edit2, Pause, Clock
 } from "lucide-react";
 import type { ExcelRow, ImageConfig, EmailTemplate } from "@/app/bulk-sender/types";
 import Image from "next/image";
@@ -171,12 +171,20 @@ export default function BulkEmailPreview({
                                         Pause Dispatch
                                     </button>
                                 )}
-                                {/* RESUME: visible whenever any row is paused */}
+                                {/* RESUME PENDING: visible when any row is pending AND not currently sending */}
+                                {!isCurrentlySending && Object.values(rowStatuses).some(s => s === "PENDING") && (
+                                    <button onClick={onConfirm}
+                                        className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-emerald-500 hover:text-white transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(16,185,129,0.1)]">
+                                        <Send size={16} />
+                                        Resume Pending
+                                    </button>
+                                )}
+                                {/* RESUME PAUSED: visible whenever any row is paused */}
                                 {Object.values(rowStatuses).some(s => s === "PAUSED") && (
                                     <button onClick={onResumeDispatch}
                                         className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(249,115,22,0.2)]">
                                         <Send size={16} />
-                                        Resume Campaign
+                                        Resume Paused
                                     </button>
                                 )}
                                 {/* RETRY FAILED: visible when not sending AND any row failed */}
@@ -396,6 +404,16 @@ export default function BulkEmailPreview({
                                                     >
                                                         <Edit2 size={14} />
                                                     </button>
+                                                </div>
+                                            )}
+                                            {status === "PENDING" && (
+                                                <div className="p-2 rounded-full bg-zinc-500/10" title="In queue - Pending">
+                                                    <Clock size={16} className="text-zinc-500 animate-pulse" />
+                                                </div>
+                                            )}
+                                            {status === "PAUSED" && !isSending && (
+                                                <div className="p-2 rounded-full bg-flc-orange/10" title="Paused">
+                                                    <Pause size={16} className="text-flc-orange" />
                                                 </div>
                                             )}
                                             {status === "SUCCESS" && (
