@@ -60,6 +60,7 @@ export default function BulkSenderPage() {
     const savedRowStatuses = localStorage.getItem("bulk-sender-row-statuses");
     const savedLogs = localStorage.getItem("bulk-sender-logs");
     const savedProgress = localStorage.getItem("bulk-sender-progress");
+    const savedAccountId = localStorage.getItem("bulk-sender-account-id");
     const savedHistoryId = localStorage.getItem("bulk-sender-history-id");
     const savedState = localStorage.getItem("bulk-sender-dispatch-state");
     
@@ -76,6 +77,7 @@ export default function BulkSenderPage() {
     }
     if (savedLogs) setDispatchLogs(JSON.parse(savedLogs));
     if (savedProgress) setDispatchProgress(JSON.parse(savedProgress));
+    if (savedAccountId) setSelectedAccountId(savedAccountId);
     if (loadedHistoryId) setActiveHistoryId(loadedHistoryId);
     
     // Safety: if we were "sending" but the page reloaded, we are now "paused"
@@ -87,6 +89,9 @@ export default function BulkSenderPage() {
       dispatchStateRef.current = loadedState;
     }
 
+    // Set this AFTER all localStorage loads are scheduled
+    setTimeout(() => setIsInitialLoadComplete(true), 100);
+
     const fetchData = async () => {
       const [accRes, imgRes, histRes] = await Promise.all([
         getEmailAccounts(),
@@ -96,7 +101,8 @@ export default function BulkSenderPage() {
 
       if (accRes.success && accRes.data) {
         setAccounts(accRes.data as EmailAccount[]);
-        if (accRes.data.length > 0) setSelectedAccountId(accRes.data[0]!.id);
+        // Only set default if nothing was loaded from localStorage
+        if (accRes.data.length > 0 && !savedAccountId) setSelectedAccountId(accRes.data[0]!.id);
       }
       if (imgRes.success && imgRes.data) setGalleryImages(imgRes.data);
       if (histRes.success && histRes.history) setRecentHistory(histRes.history);
@@ -109,6 +115,7 @@ export default function BulkSenderPage() {
           const safeLogs = Array.isArray(camp.logs) ? (camp.logs as any[]) : [];
           const safeData = Array.isArray(camp.excelData) ? (camp.excelData as ExcelRow[]) : [];
           
+          setData(safeData); // Sync the actual recipient list from server
           setDispatchLogs(safeLogs);
           const isOverallPaused = camp.status.includes("PAUSED");
           const isOverallCancelled = camp.status.includes("CANCELLED");
@@ -180,12 +187,13 @@ export default function BulkSenderPage() {
     localStorage.setItem("bulk-sender-data", JSON.stringify(data));
     localStorage.setItem("bulk-sender-template", JSON.stringify(template));
     localStorage.setItem("bulk-sender-step", currentStep.toString());
+    localStorage.setItem("bulk-sender-account-id", selectedAccountId || "");
     localStorage.setItem("bulk-sender-row-statuses", JSON.stringify(rowStatuses));
     localStorage.setItem("bulk-sender-logs", JSON.stringify(dispatchLogs));
     localStorage.setItem("bulk-sender-progress", JSON.stringify(dispatchProgress));
     localStorage.setItem("bulk-sender-history-id", activeHistoryId || "");
     localStorage.setItem("bulk-sender-dispatch-state", JSON.stringify(dispatchState));
-  }, [data, template, currentStep, rowStatuses, dispatchLogs, dispatchProgress, activeHistoryId, dispatchState]);
+  }, [data, template, currentStep, rowStatuses, dispatchLogs, dispatchProgress, activeHistoryId, dispatchState, selectedAccountId]);
 
   const handleSend = async () => {
     if (!selectedAccountId) {
