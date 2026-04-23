@@ -12,6 +12,7 @@ export default function SignInPage() {
     await authClient.signIn.social({
       provider: "google",
       callbackURL: "/",
+      errorCallbackURL: "/auth-error",
     }, {
         onSuccess: () => { toast.success("Signed in successfully!"); },
         onError: (ctx) => { toast.error(ctx.error.message || "Failed to sign in"); },
