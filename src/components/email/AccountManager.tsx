@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Mail, Building2, ShieldCheck, Loader2, Key } from "lucide-react";
+import { Plus, Trash2, Mail, Building2, ShieldCheck, Loader2, Key, Eye, EyeOff } from "lucide-react";
 import { addEmailAccount, getEmailAccounts, deleteEmailAccount } from "@/app/bulk-sender/actions/accounts";
 import Modal from "@/components/ui/Modal";
 import { toast } from "sonner";
@@ -10,6 +10,8 @@ interface EmailAccount {
   id: string;
   emailAddress: string;
   orgName: string;
+  appPassword?: string;
+  hasHistory?: boolean;
 }
 
 export default function AccountManager() {
@@ -17,6 +19,11 @@ export default function AccountManager() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+
+  const togglePasswordVisibility = (id: string) => {
+    setVisiblePasswords(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const [formData, setFormData] = useState({
     emailAddress: "",
@@ -55,6 +62,12 @@ export default function AccountManager() {
   };
 
   const handleDelete = async (id: string) => {
+    const account = accounts.find((a) => a.id === id);
+    if (account?.hasHistory) {
+      toast.error("Cannot delete this account because it has linked campaign history records.");
+      return;
+    }
+    
     if (!confirm("Are you sure you want to delete this account?")) return;
     
     const res = await deleteEmailAccount(id);
@@ -109,12 +122,14 @@ export default function AccountManager() {
           {accounts.map((acc) => (
             <div key={acc.id} className="glass-card p-8 group !rounded-[2.5rem] relative overflow-hidden">
               <div className="absolute top-0 right-0 p-4">
+                {!acc.hasHistory && (
                   <button
                     onClick={() => handleDelete(acc.id)}
                     className="p-2.5 rounded-xl text-zinc-600 hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
                   >
                     <Trash2 size={20} />
                   </button>
+                )}
               </div>
               
               <div className="space-y-6">
@@ -130,10 +145,29 @@ export default function AccountManager() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 bg-emerald-500/10 px-4 py-1.5 rounded-full w-fit">
-                  <ShieldCheck size={14} />
-                  Verified & Secure
+                <div className="flex items-center justify-between mt-4">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-emerald-500 bg-emerald-500/10 px-4 py-1.5 rounded-full w-fit">
+                    <ShieldCheck size={14} />
+                    Verified & Secure
+                  </div>
                 </div>
+
+                {acc.appPassword && (
+                  <div className="mt-4 bg-zinc-900/50 rounded-xl px-4 py-3 flex items-center justify-between border border-white/5">
+                    <div className="flex items-center gap-2">
+                      <Key size={14} className="text-zinc-600" />
+                      <span className="text-zinc-300 font-mono text-sm tracking-wider">
+                        {visiblePasswords[acc.id] ? acc.appPassword : "•••• •••• •••• ••••"}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => togglePasswordVisibility(acc.id)}
+                      className="text-zinc-500 hover:text-white transition-colors p-1"
+                    >
+                      {visiblePasswords[acc.id] ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}

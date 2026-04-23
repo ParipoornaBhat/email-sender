@@ -2,7 +2,7 @@
 
 import { db } from "@/server/db";
 import { getSession } from "@/server/better-auth/server";
-import { encrypt } from "@/server/utils/encryption";
+import { encrypt, decrypt } from "@/server/utils/encryption";
 import { revalidatePath } from "next/cache";
 
 export async function getEmailAccounts() {
@@ -12,6 +12,11 @@ export async function getEmailAccounts() {
   try {
     const accounts = await db.emailAccount.findMany({
       where: { userId: session.user.id },
+      include: {
+        _count: {
+          select: { emailHistories: true }
+        }
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -21,6 +26,8 @@ export async function getEmailAccounts() {
         id: acc.id,
         emailAddress: acc.emailAddress,
         orgName: acc.orgName,
+        appPassword: decrypt(acc.appPassword),
+        hasHistory: acc._count.emailHistories > 0,
         createdAt: acc.createdAt,
       })) 
     };
