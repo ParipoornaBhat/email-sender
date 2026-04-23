@@ -391,30 +391,35 @@ export default function BulkSenderPage() {
     const res = await getCampaignDetails(historyId);
     if (res.success && res.campaign) {
       const { campaign } = res;
-      setData(campaign.excelData);
+      setData(campaign.excelData as ExcelRow[]);
       setTemplate({
         subject: campaign.subject || "",
         bodyHtml: campaign.bodyHtml || "",
-        images: JSON.parse(campaign.imagesConfig || "[]")
+        images: (campaign.imagesConfig as unknown as any[]) || []
       });
       setSelectedAccountId(campaign.accountId);
       setActiveHistoryId(campaign.id);
 
       // Reconstruct row statuses from logs
       const statuses: Record<number, string> = {};
-      campaign.excelData.forEach((_: any, i: number) => statuses[i] = "PENDING");
-      campaign.logs.forEach((log: any) => {
+      (campaign.excelData as ExcelRow[]).forEach((_: any, i: number) => statuses[i] = "PENDING");
+      (campaign.logs as any[]).forEach((log: any) => {
         if (log.rowIndex !== undefined) {
           statuses[log.rowIndex] = log.status;
         }
       });
       setRowStatuses(statuses);
-      setDispatchLogs(campaign.logs);
+      setDispatchLogs(campaign.logs as any[]);
 
       // Update progress
-      const success = campaign.logs.filter((l: any) => l.status === "SUCCESS").length;
-      const failed = campaign.logs.filter((l: any) => l.status !== "SUCCESS").length;
-      setDispatchProgress({ current: campaign.logs.length, total: campaign.excelData.length, success, failed });
+      const success = (campaign.logs as any[]).filter((l: any) => l.status === "SUCCESS").length;
+      const failed = (campaign.logs as any[]).filter((l: any) => l.status !== "SUCCESS").length;
+      setDispatchProgress({ 
+        current: (campaign.logs as any[]).length, 
+        total: (campaign.excelData as any[]).length, 
+        success, 
+        failed 
+      });
 
       setDispatchState("PAUSED"); // Treat as paused so user can resume
       setCurrentStep(3); // Go straight to preview

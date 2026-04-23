@@ -184,12 +184,12 @@ export default function HistoryPage() {
         title="Review Campaign"
         maxWidth="max-w-[90vw]"
       >
-        {selectedRecord && (
+        {selectedRecord && selectedData && (
           <div className="max-w-none mx-auto">
             <BulkEmailPreview 
-              data={selectedData.data}
-              template={selectedData.template}
-              dispatchLogs={selectedData.logs}
+              data={selectedData.data as any[]}
+              template={selectedData.template as any}
+              dispatchLogs={selectedData.logs as any[]}
               onConfirm={() => {}}
               isSending={false}
               readOnly={true}

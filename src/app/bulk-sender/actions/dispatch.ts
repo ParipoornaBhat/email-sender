@@ -247,9 +247,9 @@ export async function getCampaignDetails(id: string) {
             success: true, 
             campaign: {
                 ...campaign,
-                imagesConfig: JSON.parse(campaign.imagesConfig),
-                excelData: JSON.parse(campaign.excelData),
-                logs: JSON.parse(campaign.logs)
+                imagesConfig: campaign.imagesConfig || [],
+                excelData: campaign.excelData || [],
+                logs: campaign.logs || []
             }
         };
     } catch (error) {
