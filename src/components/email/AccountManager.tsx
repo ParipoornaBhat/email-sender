@@ -80,17 +80,17 @@ export default function AccountManager() {
   };
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-1">
-          <h2 className="text-4xl font-black text-white lilita-font tracking-tight">Connected Accounts</h2>
-          <p className="text-zinc-500 font-medium text-lg">Securely manage your club email credentials.</p>
+        <div className="space-y-0.5">
+          <h2 className="text-2xl font-black text-white lilita-font tracking-tight">Connected Accounts</h2>
+          <p className="text-zinc-500 font-medium text-sm sm:text-base">Securely manage your club email credentials.</p>
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="btn-primary flex items-center gap-2 !px-8 !py-4 !rounded-2xl"
+          className="btn-primary flex items-center gap-2 !px-6 !py-3 !rounded-xl text-sm"
         >
-          <Plus size={22} />
+          <Plus size={18} />
           Add Account
         </button>
       </div>
@@ -118,9 +118,9 @@ export default function AccountManager() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {accounts.map((acc) => (
-            <div key={acc.id} className="glass-card p-8 group !rounded-[2.5rem] relative overflow-hidden">
+            <div key={acc.id} className="glass-card p-6 group !rounded-3xl relative overflow-hidden">
               <div className="absolute top-0 right-0 p-4">
                 {!acc.hasHistory && (
                   <button
@@ -132,15 +132,15 @@ export default function AccountManager() {
                 )}
               </div>
               
-              <div className="space-y-6">
-                <div className="w-14 h-14 rounded-2xl bg-flc-orange/10 text-flc-orange flex items-center justify-center shadow-inner">
-                  <Mail size={28} />
+              <div className="space-y-4">
+                <div className="w-12 h-12 rounded-xl bg-flc-orange/10 text-flc-orange flex items-center justify-center shadow-inner">
+                  <Mail size={22} />
                 </div>
                 
-                <div className="space-y-1">
-                  <h3 className="text-xl font-black truncate text-white">{acc.emailAddress}</h3>
-                  <p className="text-zinc-500 font-bold text-sm flex items-center gap-2">
-                    <Building2 size={14} className="text-zinc-600" />
+                <div className="space-y-0.5">
+                  <h3 className="text-lg font-black truncate text-white">{acc.emailAddress}</h3>
+                  <p className="text-zinc-500 font-bold text-xs flex items-center gap-2">
+                    <Building2 size={12} className="text-zinc-600" />
                     {acc.orgName}
                   </p>
                 </div>

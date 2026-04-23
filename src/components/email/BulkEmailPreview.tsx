@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import {
     ChevronLeft, ChevronRight, Send, User, Mail,
     Image as ImageIcon, Sparkles, Loader2, Search,
-    CheckCircle2, Paperclip, FileImage, ExternalLink, X, Edit2
+    CheckCircle2, Paperclip, FileImage, ExternalLink, X, Edit2, Pause
 } from "lucide-react";
 import type { ExcelRow, ImageConfig, EmailTemplate } from "@/app/bulk-sender/types";
 import Image from "next/image";
@@ -19,11 +19,13 @@ interface BulkEmailPreviewProps {
     onAgree?: () => Promise<void>;
     dispatchState?: "IDLE" | "SENDING" | "PAUSED" | "ERROR_PAUSED" | "CANCELLED" | "COMPLETED";
     dispatchProgress?: { current: number; total: number; success: number; failed: number };
-    dispatchLogs?: { email: string; status: string; error?: string }[];
+    dispatchLogs?: { email: string; status: string; error?: string; rowIndex?: number }[];
     currentlyProcessing?: string | null;
     onCancelDispatch?: () => void;
     onPauseDispatch?: () => void;
     onResumeDispatch?: () => void;
+    onRetryFailed?: () => void;
+    onRetryCancelled?: () => void;
     onResetAndNew?: () => void;
     onDataEdit?: (rowIndex: number, newData: any) => void;
     rowStatuses?: Record<number, string>;
@@ -45,6 +47,8 @@ export default function BulkEmailPreview({
     onCancelDispatch,
     onPauseDispatch,
     onResumeDispatch,
+    onRetryFailed,
+    onRetryCancelled,
     onResetAndNew,
     onDataEdit,
     rowStatuses = {},
@@ -52,6 +56,18 @@ export default function BulkEmailPreview({
 }: BulkEmailPreviewProps) {
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [searchTerm, setSearchTerm] = useState("");
+    
+    // Reconstruct row statuses from logs if in read-only mode
+    const effectiveRowStatuses = useMemo(() => {
+        if (!readOnly) return rowStatuses;
+        const statuses: Record<number, string> = {};
+        dispatchLogs.forEach(log => {
+            if (log.rowIndex !== undefined && log.rowIndex !== null) {
+                statuses[log.rowIndex] = log.status;
+            }
+        });
+        return statuses;
+    }, [readOnly, rowStatuses, dispatchLogs]);
     const [localAcceptedTerms, setLocalAcceptedTerms] = useState(false);
     const [isAgreeing, setIsAgreeing] = useState(false);
     const [editIndex, setEditIndex] = useState<number | null>(null); // For inline row editing
@@ -91,10 +107,10 @@ export default function BulkEmailPreview({
             {/* Header / Global Controls */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 px-2 sm:px-4">
                 <div className="space-y-2">
-                    <h3 className="text-3xl sm:text-5xl font-black text-white lilita-font tracking-tight">
+                    <h3 className="text-2xl sm:text-4xl font-black text-white lilita-font tracking-tight">
                         {dispatchState === "IDLE" ? "Final Dispatch Check" : "Live Dispatch Progress"}
                     </h3>
-                    <p className="text-zinc-500 font-medium text-base sm:text-lg">
+                    <p className="text-zinc-500 font-medium text-sm sm:text-base">
                         {dispatchState === "IDLE" 
                             ? "Review and verify individual recipient data before mass dispatch."
                             : "Real-time progress and granular control of your campaign."}
@@ -102,7 +118,7 @@ export default function BulkEmailPreview({
                 </div>
 
                 <div className="flex flex-col items-start md:items-end gap-4">
-                    {!hasAgreedTerms && dispatchState === "IDLE" ? (
+                    {!hasAgreedTerms && dispatchState === "IDLE" && !readOnly ? (
                         <div className="flex flex-col items-end gap-4 bg-flc-orange/5 p-6 rounded-[2rem] border border-flc-orange/20">
                              {/* ... same terms code ... */}
                              <label className="flex items-center gap-3 cursor-pointer group">
@@ -131,7 +147,7 @@ export default function BulkEmailPreview({
                                 Agree & Enable Sending
                             </button>
                         </div>
-                    ) : (
+                    ) : !readOnly ? (
                         <div className="flex flex-wrap items-center gap-3">
                             {dispatchState === "IDLE" && (
                                 <button
@@ -145,53 +161,57 @@ export default function BulkEmailPreview({
                                     </div>
                                 </button>
                             )}
-                            {isCurrentlySending && (
-                                <button 
-                                    onClick={onPauseDispatch}
-                                    className="bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-zinc-500 hover:text-white transition-all flex items-center gap-3"
-                                >
-                                    <span className="w-2 h-2 bg-zinc-500 rounded-full animate-pulse" />
-                                    Pause Dispatch
-                                </button>
-                            )}
-                            {(dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED" || dispatchState === "CANCELLED" || dispatchState === "COMPLETED") && (
-                                <>
-                                    {(dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") && (
-                                        <button 
-                                            onClick={onResumeDispatch}
-                                            className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all flex items-center gap-3"
-                                        >
-                                            <Send size={16} />
-                                            Resume Remaining
-                                        </button>
-                                    )}
-                                    {(dispatchProgress.failed > 0 || dispatchState === "CANCELLED") && (
-                                        <button 
-                                            onClick={onResumeDispatch}
-                                            className="bg-blue-500/10 text-blue-500 border border-blue-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-blue-500 hover:text-white transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(59,130,246,0.2)]"
-                                        >
-                                            <Sparkles size={16} />
-                                            Retry Failed/Remaining
-                                        </button>
-                                    )}
-                                    <button 
-                                        onClick={onResetAndNew}
-                                        className="bg-white/5 text-zinc-400 border border-white/10 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:text-white transition-all"
-                                    >
+                            {/* Global Controls */}
+                            <div className="flex flex-wrap items-center gap-3">
+                                {/* PAUSE: visible while actively sending */}
+                                {isCurrentlySending && (
+                                    <button onClick={onPauseDispatch}
+                                        className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all flex items-center gap-3">
+                                        <span className="w-2 h-2 bg-flc-orange rounded-full animate-pulse" />
+                                        Pause Dispatch
+                                    </button>
+                                )}
+                                {/* RESUME: visible whenever any row is paused */}
+                                {Object.values(rowStatuses).some(s => s === "PAUSED") && (
+                                    <button onClick={onResumeDispatch}
+                                        className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(249,115,22,0.2)]">
+                                        <Send size={16} />
+                                        Resume Campaign
+                                    </button>
+                                )}
+                                {/* RETRY FAILED: visible when not sending AND any row failed */}
+                                {!isCurrentlySending && Object.values(rowStatuses).some(s => s === "FAILED") && (
+                                    <button onClick={onRetryFailed}
+                                        className="bg-red-500/10 text-red-500 border border-red-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-red-500 hover:text-white transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(239,68,68,0.1)]">
+                                        <Sparkles size={16} />
+                                        Retry Failed
+                                    </button>
+                                )}
+                                {/* RETRY CANCELLED: visible when not sending AND any row cancelled */}
+                                {!isCurrentlySending && Object.values(rowStatuses).some(s => s === "CANCELLED") && (
+                                    <button onClick={onRetryCancelled}
+                                        className="bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-zinc-500 hover:text-white transition-all flex items-center gap-3">
+                                        <Sparkles size={16} />
+                                        Retry Cancelled
+                                    </button>
+                                )}
+                                {/* CANCEL ALL: only when there are still pending/sending rows */}
+                                {(isCurrentlySending || dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") && Object.values(rowStatuses).some(s => s === "PENDING" || s === "PAUSED" || s === "SENDING") && (
+                                    <button onClick={onCancelDispatch}
+                                        className="bg-red-500/10 text-red-500 border border-red-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-red-500 hover:text-white transition-all">
+                                        Cancel All
+                                    </button>
+                                )}
+                                {/* NEW CAMPAIGN: visible when not idle and not actively sending */}
+                                {!isCurrentlySending && dispatchState !== "IDLE" && (
+                                    <button onClick={onResetAndNew}
+                                        className="bg-white/5 text-zinc-400 border border-white/10 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:text-white transition-all">
                                         New Campaign
                                     </button>
-                                </>
-                            )}
-                            {(isCurrentlySending || dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") && (
-                                <button 
-                                    onClick={onCancelDispatch}
-                                    className="bg-red-500/10 text-red-500 border border-red-500/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-red-500 hover:text-white transition-all"
-                                >
-                                    Cancel
-                                </button>
-                            )}
+                                )}
+                            </div>
                         </div>
-                    )}
+                    ) : null}
                 </div>
             </div>
 
@@ -239,7 +259,7 @@ export default function BulkEmailPreview({
 
             <div className="flex flex-col xl:flex-row xl:h-[750px] gap-6">
                 {/* Left Pane: Recipients List */}
-                <div className="w-full xl:w-1/3 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/40 overflow-hidden min-h-[300px] xl:min-h-0">
+                <div className="w-full xl:w-1/4 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/40 overflow-hidden min-h-[300px] xl:min-h-0">
                     <div className="p-6 border-b border-white/5 space-y-4">
                         <div className="flex items-center justify-between">
                             <h4 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500">Recipient Directory</h4>
@@ -249,10 +269,10 @@ export default function BulkEmailPreview({
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600" size={16} />
                             <input
                                 type="text"
-                                placeholder="Search by name or email..."
+                                placeholder="Search recipients..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full bg-white/5 border border-white/5 rounded-xl pl-12 pr-4 py-3 text-sm font-bold text-white outline-none focus:border-flc-orange/30 transition-all placeholder:text-zinc-700"
+                                className="w-full bg-white/5 border border-white/5 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold text-white outline-none focus:border-flc-orange/30 transition-all placeholder:text-zinc-700"
                             />
                         </div>
                     </div>
@@ -262,16 +282,16 @@ export default function BulkEmailPreview({
                             const email = row.Email || row.email || Object.values(row)[0];
                             const name = row.Name || row.name || email;
                             const isSelected = currentRow === row;
-                            const status = rowStatuses[idx] || "PENDING";
+                            const status = effectiveRowStatuses[idx] || "PENDING";
 
                             return (
                                 <div
                                     key={idx}
                                     onClick={() => setSelectedIndex(idx)}
-                                    className={`p-5 border-b border-white/5 cursor-pointer transition-all relative group ${isSelected ? "bg-flc-orange/10" : "hover:bg-white/[0.02]"
+                                    className={`p-4 border-b border-white/5 cursor-pointer transition-all relative group ${isSelected ? "bg-flc-orange/10" : "hover:bg-white/[0.02]"
                                         }`}
                                 >
-                                    {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-flc-orange shadow-[0_0_15px_rgba(249,115,22,0.5)]" />}
+                                    {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-flc-orange shadow-[0_0_10px_rgba(249,115,22,0.5)]" />}
                                     
                                     <div className="flex items-center justify-between mb-2">
                                         <div className="flex items-center gap-3 min-w-0">
@@ -291,63 +311,98 @@ export default function BulkEmailPreview({
                                     </div>
 
                                     <div className="flex items-center justify-between gap-4">
-                                        <span className="text-[10px] font-bold text-zinc-500 truncate">{email}</span>
-                                        
-                                        {/* Row Actions */}
-                                        <div className={`flex items-center gap-2 transition-all duration-300 ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-                                            {status === "PENDING" && isCurrentlySending && (
-                                                <button 
-                                                    onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "PAUSE"); }}
-                                                    className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                                                    title="Pause this email"
-                                                >
-                                                    <Loader2 size={12} className="animate-spin" />
-                                                </button>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-[10px] font-bold text-zinc-500 truncate">{email}</span>
+                                            {status === "FAILED" && (
+                                                <span className="text-[9px] font-black text-red-500 mt-1 uppercase tracking-tighter">
+                                                    Error: {dispatchLogs.find(l => l.rowIndex === idx)?.error || "Delivery failed"}
+                                                </span>
                                             )}
                                             {status === "PAUSED" && (
-                                                <div className="flex items-center gap-1">
+                                                <span className="text-[9px] font-black text-zinc-400 mt-1 uppercase tracking-tighter">
+                                                    Email Paused
+                                                </span>
+                                            )}
+                                            {status === "CANCELLED" && (
+                                                <span className="text-[9px] font-black text-zinc-600 mt-1 uppercase tracking-tighter">
+                                                    Email Cancelled
+                                                </span>
+                                            )}
+                                            {status === "SENDING" && (
+                                                <span className="text-[9px] font-black text-flc-orange mt-1 uppercase tracking-tighter animate-pulse">
+                                                    Sending...
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Row Actions */}
+                                        <div className={`flex items-center gap-2 transition-all duration-300 ${isSelected || status !== "PENDING" ? "opacity-100" : "opacity-100"}`}>
+                                            {!readOnly && status === "PENDING" && isCurrentlySending && (
+                                                <div className="flex items-center gap-1.5 animate-in fade-in duration-300">
                                                     <button 
-                                                        onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "RESUME"); }}
-                                                        className="p-1.5 rounded-lg bg-green-500/20 text-green-500 hover:bg-green-500 hover:text-white transition-all"
-                                                        title="Resume this email"
+                                                        onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "PAUSE"); }}
+                                                        className="p-2 rounded-xl bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-white transition-all shadow-lg active:scale-90"
+                                                        title="Pause this email"
                                                     >
-                                                        <Send size={12} />
+                                                        <Pause size={14} />
                                                     </button>
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "CANCEL"); }}
-                                                        className="p-1.5 rounded-lg bg-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                                                        className="p-2 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-lg active:scale-90 border border-red-500/20"
                                                         title="Cancel this email"
                                                     >
-                                                        <X size={12} />
+                                                        <X size={14} />
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {status === "PAUSED" && (
+                                                <div className="flex items-center gap-1.5 animate-in fade-in zoom-in duration-300">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "RESUME"); }}
+                                                        className="p-2 rounded-xl bg-green-500/10 text-green-500 hover:bg-green-500 hover:text-white transition-all shadow-lg active:scale-90 border border-green-500/20"
+                                                        title="Resume this email"
+                                                    >
+                                                        <Send size={14} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "CANCEL"); }}
+                                                        className="p-2 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-lg active:scale-90 border border-red-500/20"
+                                                        title="Cancel this email"
+                                                    >
+                                                        <X size={14} />
                                                     </button>
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); setEditIndex(idx); setEditData(row); }}
-                                                        className="p-1.5 rounded-lg bg-white/5 text-zinc-400 hover:text-white transition-all"
+                                                        className="p-2 rounded-xl bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white transition-all shadow-lg active:scale-90 border border-white/10"
                                                         title="Edit data"
                                                     >
-                                                        <Edit2 size={12} />
+                                                        <Edit2 size={14} />
                                                     </button>
                                                 </div>
                                             )}
                                             {(status === "FAILED" || status === "CANCELLED") && (
-                                                <div className="flex items-center gap-1">
+                                                <div className="flex items-center gap-1.5 animate-in fade-in zoom-in duration-300">
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); onRowAction?.(idx, "RETRY"); }}
-                                                        className="p-1.5 rounded-lg bg-blue-500/20 text-blue-500 hover:bg-blue-500 hover:text-white transition-all"
+                                                        className="p-2 rounded-xl bg-blue-500/10 text-blue-500 hover:bg-blue-500 hover:text-white transition-all shadow-lg active:scale-90 border border-blue-500/20"
                                                         title="Retry this email"
                                                     >
-                                                        <Sparkles size={12} />
+                                                        <Sparkles size={14} />
                                                     </button>
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); setEditIndex(idx); setEditData(row); }}
-                                                        className="p-1.5 rounded-lg bg-white/5 text-zinc-400 hover:text-white transition-all"
+                                                        className="p-2 rounded-xl bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white transition-all shadow-lg active:scale-90 border border-white/10"
                                                         title="Edit data"
                                                     >
-                                                        <Edit2 size={12} />
+                                                        <Edit2 size={14} />
                                                     </button>
                                                 </div>
                                             )}
-                                            {status === "SUCCESS" && <CheckCircle2 size={14} className="text-green-500" />}
+                                            {status === "SUCCESS" && (
+                                                <div className="p-2 rounded-full bg-green-500/10">
+                                                    <CheckCircle2 size={16} className="text-green-500" />
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -400,7 +455,7 @@ export default function BulkEmailPreview({
                 </div>
 
                 {/* Right Pane: Content Preview */}
-                <div className="w-full xl:w-2/3 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/20 overflow-hidden min-h-[500px] xl:min-h-0">
+                <div className="w-full xl:w-3/4 flex flex-col glass-card !rounded-[2.5rem] border-white/5 bg-black/20 overflow-hidden min-h-[500px] xl:min-h-0">
                     {!currentRow ? (
                         <div className="flex-1 flex items-center justify-center opacity-20">
                             <p className="text-xl font-bold">Select a recipient to preview</p>
@@ -427,7 +482,7 @@ export default function BulkEmailPreview({
                             {/* Scrollable Content Area */}
                             <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
                                 {/* Email Body */}
-                                <div className="flex-1 p-4 sm:p-8 overflow-y-auto border-b md:border-b-0 md:border-r border-white/5 bg-white selection:bg-flc-orange/20 min-h-[300px]">
+                                <div className="flex-[2] p-4 sm:p-10 overflow-y-auto border-b md:border-b-0 md:border-r border-white/5 bg-white selection:bg-flc-orange/20 min-h-[400px]">
                                     <div
                                         className="prose prose-sm sm:prose-lg max-w-none text-zinc-800"
                                         dangerouslySetInnerHTML={{ __html: interpolatedBody }}
@@ -435,7 +490,7 @@ export default function BulkEmailPreview({
                                 </div>
 
                                 {/* Attachments Column */}
-                                <div className="w-full md:w-1/3 p-4 sm:p-6 overflow-y-auto bg-black/40 custom-scrollbar space-y-4 sm:space-y-6 max-h-[300px] md:max-h-none">
+                                <div className="flex-1 p-4 sm:p-6 overflow-y-auto bg-black/40 custom-scrollbar space-y-4 sm:space-y-6 max-h-[300px] md:max-h-none">
                                     <div className="flex items-center justify-between mb-4">
                                         <h5 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">Attachments</h5>
                                         <span className="text-[10px] font-bold text-flc-orange">{template.images.length} Files</span>
@@ -493,63 +548,6 @@ export default function BulkEmailPreview({
                 </div>
             </div>
 
-            {/* Terminal Window (Unified at the bottom) */}
-            {dispatchState !== "IDLE" && (
-                <div className="glass-card !rounded-[2.5rem] border-white/5 bg-black/60 overflow-hidden flex flex-col p-4 sm:p-8 gap-4">
-                    <div className="flex items-center justify-between px-2">
-                        <h4 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
-                            <span className="w-2 h-2 bg-flc-orange rounded-full animate-pulse" />
-                            Dispatch Console
-                        </h4>
-                        <div className="flex gap-2">
-                            <div className="w-3 h-3 rounded-full bg-red-500/20" />
-                            <div className="w-3 h-3 rounded-full bg-yellow-500/20" />
-                            <div className="w-3 h-3 rounded-full bg-green-500/20" />
-                        </div>
-                    </div>
-                    
-                    <div className="h-[300px] bg-black/80 rounded-2xl border border-white/10 p-6 font-mono text-xs sm:text-sm overflow-y-auto custom-scrollbar flex flex-col gap-3">
-                        {dispatchLogs.map((log, idx) => (
-                            <div key={idx} className="flex items-start gap-3">
-                                <span className="text-zinc-600 mt-1">[{String(idx + 1).padStart(3, '0')}]</span>
-                                {log.status === "SUCCESS" ? (
-                                    <span className="text-green-400 flex items-start gap-2 leading-relaxed">
-                                        <CheckCircle2 size={16} className="mt-1 shrink-0" /> 
-                                        <span>Successfully sent to <span className="font-bold text-white">{log.email}</span></span>
-                                    </span>
-                                ) : (
-                                    <span className="text-red-400 flex items-start gap-2 leading-relaxed">
-                                        <span className="font-black mt-0.5 shrink-0">✗</span> 
-                                        <span>Failed to send to <span className="font-bold text-white">{log.email}</span>: {log.error}</span>
-                                    </span>
-                                )}
-                            </div>
-                        ))}
-                        {dispatchState === "SENDING" && currentlyProcessing && (
-                            <div className="flex items-center gap-3 text-zinc-500 animate-pulse mt-4">
-                                <Loader2 size={16} className="animate-spin" />
-                                Processing recipient {dispatchProgress.current + 1} of {dispatchProgress.total} ({currentlyProcessing})...
-                            </div>
-                        )}
-                        {dispatchState === "PAUSED" && (
-                            <div className="text-zinc-400 font-bold mt-4">
-                                &gt; CAMPAIGN PAUSED BY USER.
-                            </div>
-                        )}
-                        {dispatchState === "CANCELLED" && (
-                            <div className="text-red-500 font-bold mt-4">
-                                &gt; CAMPAIGN CANCELLED BY USER.
-                            </div>
-                        )}
-                        {dispatchState === "COMPLETED" && (
-                            <div className="text-green-500 font-bold mt-4">
-                                &gt; CAMPAIGN COMPLETED SUCCESSFULLY.
-                            </div>
-                        )}
-                        <div ref={terminalEndRef} />
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

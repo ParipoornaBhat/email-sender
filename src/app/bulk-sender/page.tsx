@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Mail, FileSpreadsheet, Image as ImageIcon, Eye, ArrowRight, ArrowLeft, Sparkles, Trash2 } from "lucide-react";
+import { Mail, FileSpreadsheet, Image as ImageIcon, Eye, ArrowRight, ArrowLeft, Sparkles, Trash2, History, ChevronRight } from "lucide-react";
 import ExcelDropzone from "@/components/email/ExcelDropzone";
 import ImageConfigurator from "@/components/email/ImageConfigurator";
 import BulkEmailPreview from "@/components/email/BulkEmailPreview";
 import type { ExcelRow, EmailTemplate, EmailAccount } from "./types";
 import { getEmailAccounts } from "./actions/accounts";
 import { getGalleryImages } from "./actions/gallery";
-import { initializeCampaign, dispatchSingleEmail, updateCampaignProgress } from "./actions/dispatch";
+import { initializeCampaign, dispatchSingleEmail, updateCampaignProgress, getCampaignHistory, getCampaignDetails } from "./actions/dispatch";
 import { getAgreementStatus, acceptTerms } from "./actions/terms";
 import RichTextEditor from "@/components/email/RichTextEditor";
 import { toast } from "sonner";
@@ -46,22 +46,37 @@ export default function BulkSenderPage() {
   const [rowStatuses, setRowStatuses] = useState<Record<number, string>>({});
   const [currentlyProcessing, setCurrentlyProcessing] = useState<string | null>(null);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  const [recentHistory, setRecentHistory] = useState<any[]>([]);
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
   const actionRequested = useRef<"NONE" | "CANCEL" | "PAUSE" | "PAUSE_ERROR">("NONE");
+  const rowStatusesRef = useRef<Record<number, string>>({});
+  const dispatchStateRef = useRef(dispatchState);
 
   useEffect(() => {
     // Load from localStorage on mount
     const savedData = localStorage.getItem("bulk-sender-data");
     const savedTemplate = localStorage.getItem("bulk-sender-template");
     const savedStep = localStorage.getItem("bulk-sender-step");
+    const savedRowStatuses = localStorage.getItem("bulk-sender-row-statuses");
+    const savedLogs = localStorage.getItem("bulk-sender-logs");
+    const savedProgress = localStorage.getItem("bulk-sender-progress");
+    const savedHistoryId = localStorage.getItem("bulk-sender-history-id");
+    const savedState = localStorage.getItem("bulk-sender-dispatch-state");
 
     if (savedData) setData(JSON.parse(savedData));
     if (savedTemplate) setTemplate(JSON.parse(savedTemplate));
     if (savedStep) setCurrentStep(parseInt(savedStep));
+    if (savedRowStatuses) setRowStatuses(JSON.parse(savedRowStatuses));
+    if (savedLogs) setDispatchLogs(JSON.parse(savedLogs));
+    if (savedProgress) setDispatchProgress(JSON.parse(savedProgress));
+    if (savedHistoryId) setActiveHistoryId(savedHistoryId);
+    if (savedState) setDispatchState(JSON.parse(savedState));
 
     const fetchData = async () => {
-      const [accRes, imgRes] = await Promise.all([
+      const [accRes, imgRes, histRes] = await Promise.all([
         getEmailAccounts(),
-        getGalleryImages()
+        getGalleryImages(),
+        getCampaignHistory()
       ]);
 
       if (accRes.success && accRes.data) {
@@ -69,6 +84,7 @@ export default function BulkSenderPage() {
         if (accRes.data.length > 0) setSelectedAccountId(accRes.data[0]!.id);
       }
       if (imgRes.success && imgRes.data) setGalleryImages(imgRes.data);
+      if (histRes.success && histRes.history) setRecentHistory(histRes.history);
     };
     fetchData();
 
@@ -77,30 +93,52 @@ export default function BulkSenderPage() {
       if (res.success) setHasAgreedTerms(res.agreed ?? false);
     };
     checkAgreement();
+    setIsInitialLoadComplete(true);
   }, []);
 
-  // Initialize row statuses when data is loaded
+  // Sync refs with state
   useEffect(() => {
+    rowStatusesRef.current = rowStatuses;
+  }, [rowStatuses]);
+  useEffect(() => {
+    dispatchStateRef.current = dispatchState;
+  }, [dispatchState]);
+
+  // Initialize row statuses when data changes
+  useEffect(() => {
+    if (!isInitialLoadComplete) return;
+
     if (data.length > 0) {
-      const initialStatuses: Record<number, string> = {};
-      data.forEach((_, idx) => {
-        // Only set to PENDING if not already set (to preserve statuses if data is edited)
-        if (!rowStatuses[idx]) {
-          initialStatuses[idx] = "PENDING";
-        }
+      setRowStatuses(prev => {
+        const newStatuses = { ...prev };
+        let changed = false;
+
+        data.forEach((_, idx) => {
+          if (!newStatuses[idx]) {
+            newStatuses[idx] = "PENDING";
+            changed = true;
+          }
+        });
+        return changed ? newStatuses : prev;
       });
-      if (Object.keys(initialStatuses).length > 0) {
-        setRowStatuses(prev => ({ ...initialStatuses, ...prev }));
-      }
+    } else {
+      setRowStatuses({});
     }
-  }, [data.length]);
+  }, [data, isInitialLoadComplete]);
 
   // Save to localStorage when state changes
   useEffect(() => {
+    if (!isInitialLoadComplete) return;
+
     localStorage.setItem("bulk-sender-data", JSON.stringify(data));
     localStorage.setItem("bulk-sender-template", JSON.stringify(template));
     localStorage.setItem("bulk-sender-step", currentStep.toString());
-  }, [data, template, currentStep]);
+    localStorage.setItem("bulk-sender-row-statuses", JSON.stringify(rowStatuses));
+    localStorage.setItem("bulk-sender-logs", JSON.stringify(dispatchLogs));
+    localStorage.setItem("bulk-sender-progress", JSON.stringify(dispatchProgress));
+    localStorage.setItem("bulk-sender-history-id", activeHistoryId || "");
+    localStorage.setItem("bulk-sender-dispatch-state", JSON.stringify(dispatchState));
+  }, [data, template, currentStep, rowStatuses, dispatchLogs, dispatchProgress, activeHistoryId, dispatchState]);
 
   const handleSend = async () => {
     if (!selectedAccountId) {
@@ -108,7 +146,9 @@ export default function BulkSenderPage() {
       return;
     }
 
-    const isResuming = dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED" || dispatchState === "CANCELLED" || dispatchState === "COMPLETED";
+    // Use ref to avoid stale closure — state may not have flushed yet
+    const currentState = dispatchStateRef.current;
+    const isResuming = currentState === "PAUSED" || currentState === "ERROR_PAUSED" || currentState === "CANCELLED" || currentState === "COMPLETED";
 
     setDispatchState("SENDING");
     actionRequested.current = "NONE";
@@ -119,13 +159,19 @@ export default function BulkSenderPage() {
     if (!isResuming) {
       setDispatchProgress({ current: 0, total: data.length, success: 0, failed: 0 });
       setDispatchLogs([]);
-      // Reset all statuses to PENDING for a fresh start
       const freshStatuses: Record<number, string> = {};
       data.forEach((_, i) => freshStatuses[i] = "PENDING");
       setRowStatuses(freshStatuses);
+      rowStatusesRef.current = freshStatuses;
 
-      // 1. Initialize in Database first
-      const initRes = await initializeCampaign({ accountId: selectedAccountId, template, data });
+      const sanitizedTemplate = JSON.parse(JSON.stringify(template));
+      const sanitizedData = JSON.parse(JSON.stringify(data));
+
+      const initRes = await initializeCampaign({
+        accountId: selectedAccountId,
+        template: sanitizedTemplate,
+        data: sanitizedData
+      });
       if (initRes.success && initRes.historyId) {
         currentHistoryId = initRes.historyId;
         setActiveHistoryId(initRes.historyId);
@@ -135,32 +181,28 @@ export default function BulkSenderPage() {
         setDispatchState("IDLE");
         return;
       }
-    } else if (dispatchState === "ERROR_PAUSED" && currentHistoryId) {
-      // If resuming from an error, update the DB with the potentially edited data first
+    } else if (currentState === "ERROR_PAUSED" && currentHistoryId) {
       await updateCampaignProgress({
         historyId: currentHistoryId,
-        logs: dispatchLogs,
+        logs: JSON.parse(JSON.stringify(dispatchLogs)),
         status: "PROCESSING",
-        excelData: data // push the edited data
+        excelData: JSON.parse(JSON.stringify(data))
       });
     }
 
     const logs = [...dispatchLogs];
-    
-    // Recalculate success/fail from rowStatuses
-    let successCount = Object.values(rowStatuses).filter(s => s === "SUCCESS").length;
-    let failCount = Object.values(rowStatuses).filter(s => s === "FAILED").length;
+
+    // Recalculate counts from current ref (most up-to-date)
+    const currentStatuses = rowStatusesRef.current;
+    let successCount = Object.values(currentStatuses).filter(s => s === "SUCCESS").length;
+    let failCount = Object.values(currentStatuses).filter(s => s === "FAILED").length;
+    let processedCount = successCount + failCount;
 
     for (let i = 0; i < data.length; i++) {
-      if (actionRequested.current !== "NONE") {
-        break; // Global Cancel or Pause requested
-      }
+      if (actionRequested.current !== "NONE") break;
 
-      const currentStatus = rowStatuses[i];
-      // Skip if already success or explicitly cancelled/paused at row level
-      if (currentStatus === "SUCCESS" || currentStatus === "CANCELLED" || currentStatus === "PAUSED") {
-        continue;
-      }
+      const rowStatus = rowStatusesRef.current[i];
+      if (rowStatus === "SUCCESS" || rowStatus === "CANCELLED" || rowStatus === "PAUSED") continue;
 
       const row = data[i]!;
       const targetEmail = (row.Email || row.email || Object.values(row)[0]) as string;
@@ -169,8 +211,8 @@ export default function BulkSenderPage() {
 
       const result = await dispatchSingleEmail({
         accountId: selectedAccountId,
-        row,
-        template,
+        row: JSON.parse(JSON.stringify(row)),
+        template: JSON.parse(JSON.stringify(template)),
         rowIndex: i + 1
       });
 
@@ -178,82 +220,110 @@ export default function BulkSenderPage() {
       logs.push(updatedLog);
       setDispatchLogs([...logs]);
 
+      processedCount++;
       if (result.success) {
         successCount++;
         setRowStatuses(prev => ({ ...prev, [i]: "SUCCESS" }));
       } else {
         failCount++;
         setRowStatuses(prev => ({ ...prev, [i]: "FAILED" }));
-        // On error, auto-pause the loop if user wants auto-pause on error
-        // actionRequested.current = "PAUSE_ERROR"; 
       }
 
-      setDispatchProgress({
-        current: i + 1,
-        total: data.length,
-        success: successCount,
-        failed: failCount
-      });
-
+      setDispatchProgress({ current: processedCount, total: data.length, success: successCount, failed: failCount });
       setCurrentlyProcessing(null);
 
-      // Update Database after every single email
       if (currentHistoryId) {
         await updateCampaignProgress({
           historyId: currentHistoryId,
-          logs: logs,
+          logs: JSON.parse(JSON.stringify(logs)),
           status: "PROCESSING"
         });
       }
 
-      // Small delay for UI visualization
       await new Promise(resolve => setTimeout(resolve, 800));
-
-      if ((actionRequested.current as string) === "PAUSE_ERROR") {
-        break; // Break loop immediately after updating DB
-      }
+      if ((actionRequested.current as string) === "PAUSE_ERROR") break;
     }
 
     if ((actionRequested.current as string) === "PAUSE") {
+      // Mark all remaining PENDING rows as PAUSED
+      const pausedStatuses = { ...rowStatusesRef.current };
+      Object.keys(pausedStatuses).forEach(k => {
+        if (pausedStatuses[parseInt(k)] === "PENDING") pausedStatuses[parseInt(k)] = "PAUSED";
+      });
+      setRowStatuses(pausedStatuses);
+      rowStatusesRef.current = pausedStatuses;
       setDispatchState("PAUSED");
       if (currentHistoryId) {
-        await updateCampaignProgress({ historyId: currentHistoryId, logs, status: "PAUSED" });
+        await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(logs)), status: "PAUSED" });
       }
       setIsSending(false);
       return;
     }
-
     if ((actionRequested.current as string) === "PAUSE_ERROR") {
       setDispatchState("ERROR_PAUSED");
       if (currentHistoryId) {
-        await updateCampaignProgress({ historyId: currentHistoryId, logs, status: "ERROR_PAUSED" });
+        await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(logs)), status: "ERROR_PAUSED" });
       }
       setIsSending(false);
       return;
     }
 
+    // Determine final status based on actual outcomes
+    const allSuccess = successCount === data.length;
     const isCancelled = (actionRequested.current as string) === "CANCEL";
-    const finalStatus = isCancelled
-      ? `CANCELLED (${successCount}/${data.length} sent)`
-      : failCount === 0 ? "COMPLETED" : "PARTIAL";
 
-    setDispatchState(isCancelled ? "CANCELLED" : "COMPLETED");
+    let finalState: typeof dispatchState;
+    let finalStatus: string;
 
-    if (currentHistoryId) {
-      await updateCampaignProgress({
-        historyId: currentHistoryId,
-        logs,
-        status: finalStatus
-      });
+    if (allSuccess) {
+      finalState = "COMPLETED";
+      finalStatus = "COMPLETED";
+    } else if (isCancelled) {
+      finalState = "CANCELLED";
+      finalStatus = `CANCELLED (${successCount}/${data.length} sent)`;
+    } else {
+      finalState = "COMPLETED";
+      finalStatus = failCount === 0 ? "COMPLETED" : "PARTIAL";
     }
 
-    if (isCancelled) {
+    setDispatchState(finalState);
+
+    if (currentHistoryId) {
+      await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(logs)), status: finalStatus });
+    }
+
+    if (allSuccess) {
+      toast.success(`All ${successCount} emails sent successfully!`);
+    } else if (isCancelled) {
       toast.info(`Campaign cancelled. Sent ${successCount} emails.`);
     } else {
       toast.success(`Campaign finished! Sent ${successCount}, Failed ${failCount}`);
     }
-
     setIsSending(false);
+  };
+
+  const handleResumeAll = () => {
+    const next = { ...rowStatusesRef.current };
+    Object.keys(next).forEach(k => { if (next[parseInt(k)] === "PAUSED") next[parseInt(k)] = "PENDING"; });
+    setRowStatuses(next);
+    rowStatusesRef.current = next;
+    handleSend();
+  };
+
+  const handleRetryFailed = () => {
+    const next = { ...rowStatusesRef.current };
+    Object.keys(next).forEach(k => { if (next[parseInt(k)] === "FAILED") next[parseInt(k)] = "PENDING"; });
+    setRowStatuses(next);
+    rowStatusesRef.current = next;
+    handleSend();
+  };
+
+  const handleRetryCancelled = () => {
+    const next = { ...rowStatusesRef.current };
+    Object.keys(next).forEach(k => { if (next[parseInt(k)] === "CANCELLED") next[parseInt(k)] = "PENDING"; });
+    setRowStatuses(next);
+    rowStatusesRef.current = next;
+    handleSend();
   };
 
   const handleRowAction = async (index: number, action: "PAUSE" | "RESUME" | "CANCEL" | "RETRY") => {
@@ -274,12 +344,21 @@ export default function BulkSenderPage() {
 
   const handleCancelDispatch = () => {
     actionRequested.current = "CANCEL";
+    // Mark all PENDING and PAUSED rows as CANCELLED immediately
+    const next = { ...rowStatusesRef.current };
+    Object.keys(next).forEach(k => {
+      const s = next[parseInt(k)];
+      if (s === "PENDING" || s === "PAUSED") next[parseInt(k)] = "CANCELLED";
+    });
+    setRowStatuses(next);
+    rowStatusesRef.current = next;
     if (dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") {
       setDispatchState("CANCELLED");
+      setIsSending(false);
       if (activeHistoryId) {
         updateCampaignProgress({
           historyId: activeHistoryId,
-          logs: dispatchLogs,
+          logs: JSON.parse(JSON.stringify(dispatchLogs)),
           status: `CANCELLED (${dispatchProgress.success}/${data.length} sent)`
         });
       }
@@ -290,7 +369,14 @@ export default function BulkSenderPage() {
 
   const handlePauseDispatch = () => {
     actionRequested.current = "PAUSE";
-    toast.info("Pausing... waiting for current email to finish.");
+    // Immediately mark PENDING rows as PAUSED for instant visual feedback
+    const next = { ...rowStatusesRef.current };
+    Object.keys(next).forEach(k => {
+      if (next[parseInt(k)] === "PENDING") next[parseInt(k)] = "PAUSED";
+    });
+    setRowStatuses(next);
+    rowStatusesRef.current = next;
+    toast.info("Pausing... current email will finish sending.");
   };
 
   const handleDataEdit = (rowIndex: number, newData: any) => {
@@ -301,13 +387,62 @@ export default function BulkSenderPage() {
     });
   };
 
+  const handleLoadHistory = async (historyId: string) => {
+    const res = await getCampaignDetails(historyId);
+    if (res.success && res.campaign) {
+      const { campaign } = res;
+      setData(campaign.excelData);
+      setTemplate({
+        subject: campaign.subject || "",
+        bodyHtml: campaign.bodyHtml || "",
+        images: JSON.parse(campaign.imagesConfig || "[]")
+      });
+      setSelectedAccountId(campaign.accountId);
+      setActiveHistoryId(campaign.id);
+
+      // Reconstruct row statuses from logs
+      const statuses: Record<number, string> = {};
+      campaign.excelData.forEach((_: any, i: number) => statuses[i] = "PENDING");
+      campaign.logs.forEach((log: any) => {
+        if (log.rowIndex !== undefined) {
+          statuses[log.rowIndex] = log.status;
+        }
+      });
+      setRowStatuses(statuses);
+      setDispatchLogs(campaign.logs);
+
+      // Update progress
+      const success = campaign.logs.filter((l: any) => l.status === "SUCCESS").length;
+      const failed = campaign.logs.filter((l: any) => l.status !== "SUCCESS").length;
+      setDispatchProgress({ current: campaign.logs.length, total: campaign.excelData.length, success, failed });
+
+      setDispatchState("PAUSED"); // Treat as paused so user can resume
+      setCurrentStep(3); // Go straight to preview
+      toast.success("Campaign loaded from history");
+    } else {
+      toast.error(res.error || "Failed to load campaign");
+    }
+  };
+
+  const handleNewData = (excelData: ExcelRow[]) => {
+    setData(excelData);
+    setRowStatuses({});
+    setDispatchLogs([]);
+    setDispatchProgress({ current: 0, total: excelData.length, success: 0, failed: 0 });
+    setActiveHistoryId(null);
+    setDispatchState("IDLE");
+  };
+
   const handleResetAndNew = () => {
     setDispatchState("IDLE");
     setDispatchProgress({ current: 0, total: 0, success: 0, failed: 0 });
     setDispatchLogs([]);
-    setCurrentlyProcessing(null);
+    setRowStatuses({});
+    rowStatusesRef.current = {};
     setActiveHistoryId(null);
+    setCurrentlyProcessing(null);
     actionRequested.current = "NONE";
+    setCurrentStep(0);
   };
 
   const nextStep = () => {
@@ -322,35 +457,45 @@ export default function BulkSenderPage() {
 
   const resetProgress = () => {
     if (confirm("Clear all draft progress?")) {
-      localStorage.removeItem("bulk-sender-data");
-      localStorage.removeItem("bulk-sender-template");
-      localStorage.removeItem("bulk-sender-step");
+      const keys = [
+        "bulk-sender-data", "bulk-sender-template", "bulk-sender-step",
+        "bulk-sender-row-statuses", "bulk-sender-logs", "bulk-sender-progress",
+        "bulk-sender-history-id", "bulk-sender-dispatch-state"
+      ];
+      keys.forEach(k => localStorage.removeItem(k));
       window.location.reload();
     }
   };
 
   return (
-    <div className="container mx-auto px-4 max-w-7xl pt-12 pb-32">
+    <div className="container mx-auto px-4 max-w-7xl pt-4 pb-20">
       {/* Progress Stepper */}
-      <div className="flex justify-between items-center mb-20 max-w-4xl mx-auto px-8 relative">
-        <div className="absolute top-7 left-0 w-full h-[2px] bg-white/5 -z-10" />
+      <div className="flex justify-between items-center mb-4 max-w-2xl mx-auto px-8 relative">
+        <div className="absolute top-5 left-0 w-full h-[2px] bg-white/5 -z-10" />
         <div
-          className="absolute top-7 left-0 h-[2px] bg-flc-orange -z-10 transition-all duration-700 ease-in-out"
+          className="absolute top-5 left-0 h-[2px] bg-flc-orange -z-10 transition-all duration-700 ease-in-out"
           style={{ width: `${(currentStep / (STEPS.length - 1)) * 100}%` }}
         />
 
         {STEPS.map((step, idx) => (
           <div key={step.id} className="flex flex-col items-center gap-4 relative px-4 group">
             <button
-              onClick={() => setCurrentStep(idx)}
-              className={`w-12 h-12 sm:w-16 sm:h-16 rounded-full flex items-center justify-center transition-all duration-500 relative z-10 cursor-pointer ${idx <= currentStep
-                ? "bg-flc-orange text-white shadow-[0_0_30px_rgba(242,140,40,0.3)] scale-110"
+              onClick={() => {
+                // If moving to preview and we are in IDLE, make sure it's fresh
+                if (idx === 3 && dispatchState === "IDLE") {
+                  setDispatchLogs([]);
+                  setActiveHistoryId(null);
+                }
+                setCurrentStep(idx);
+              }}
+              className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all duration-500 relative z-10 cursor-pointer ${idx <= currentStep
+                ? "bg-flc-orange text-white shadow-[0_0_20px_rgba(242,140,40,0.3)] scale-110"
                 : "bg-flc-purple-dark text-zinc-600 border-2 border-white/5 hover:border-flc-orange/30"
                 }`}
             >
-              <step.icon className="w-5 h-5 sm:w-7 sm:h-7" />
+              <step.icon className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
-            <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${idx <= currentStep ? "text-flc-orange" : "text-zinc-600"}`}>
+            <span className={`text-[9px] font-black uppercase tracking-[0.2em] ${idx <= currentStep ? "text-flc-orange" : "text-zinc-600"}`}>
               {step.name}
             </span>
           </div>
@@ -360,8 +505,8 @@ export default function BulkSenderPage() {
       <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
         <div className="min-h-[600px]">
           {currentStep === 0 && (
-            <div className="max-w-4xl mx-auto space-y-12">
-              <div className="text-center space-y-4 relative">
+            <div className="max-w-[1400px] mx-auto space-y-6">
+              <div className="text-center space-y-2 relative">
                 <button
                   onClick={resetProgress}
                   className="absolute right-0 top-0 text-[10px] font-black text-zinc-600 hover:text-red-500 uppercase tracking-[0.2em] transition-colors flex items-center gap-2"
@@ -369,28 +514,98 @@ export default function BulkSenderPage() {
                   <Trash2 size={14} />
                   Reset Draft
                 </button>
-                <h2 className="text-4xl sm:text-6xl font-black lilita-font text-white tracking-tight">Campaign Data</h2>
-                <p className="text-zinc-500 text-lg sm:text-xl font-medium">Select your sender and upload the recipient list.</p>
+                <h2 className="text-2xl sm:text-4xl font-black lilita-font text-white tracking-tight">Campaign Data</h2>
+                <p className="text-zinc-500 text-sm sm:text-base font-medium">Select your sender and upload the recipient list.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
-                <div className="space-y-4">
-                  <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">1. Select Sender Account</label>
-                  <select
-                    value={selectedAccountId}
-                    onChange={(e) => setSelectedAccountId(e.target.value)}
-                    className="w-full h-18 px-6 rounded-[1.5rem] bg-white/5 backdrop-blur-3xl border border-white/10 focus:border-flc-orange/30 focus:ring-4 focus:ring-flc-orange/5 outline-none font-bold text-lg text-white appearance-none transition-all shadow-2xl"
-                  >
-                    {accounts.map(acc => (
-                      <option key={acc.id} value={acc.id} className="bg-flc-purple-dark">{acc.emailAddress}</option>
-                    ))}
-                    {accounts.length === 0 && <option disabled>No accounts connected</option>}
-                  </select>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+                <div className="lg:col-span-7 space-y-6">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-flc-orange/10 flex items-center justify-center text-flc-orange">
+                        <span className="font-black text-xs">01</span>
+                      </div>
+                      <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest">Select Sender Account</label>
+                    </div>
+                    <select
+                      value={selectedAccountId}
+                      onChange={(e) => setSelectedAccountId(e.target.value)}
+                      className="w-full h-16 px-6 rounded-2xl bg-white/5 backdrop-blur-3xl border border-white/10 focus:border-flc-orange/30 focus:ring-4 focus:ring-flc-orange/5 outline-none font-bold text-lg text-white appearance-none transition-all shadow-xl"
+                    >
+                      {accounts.map(acc => (
+                        <option key={acc.id} value={acc.id} className="bg-flc-purple-dark">{acc.emailAddress}</option>
+                      ))}
+                      {accounts.length === 0 && <option disabled>No accounts connected</option>}
+                    </select>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-flc-orange/10 flex items-center justify-center text-flc-orange">
+                        <span className="font-black text-xs">02</span>
+                      </div>
+                      <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest">Upload Recipient List</label>
+                    </div>
+                    <div className="glass-card !rounded-[3rem] p-2 bg-white/[0.02] border-white/5">
+                      <ExcelDropzone onDataLoaded={handleNewData} />
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                  <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">2. Upload Excel/CSV</label>
-                  <ExcelDropzone onDataLoaded={setData} />
+                <div className="lg:col-span-5">
+                  {recentHistory.length > 0 ? (
+                    <div className="glass-card !rounded-[2.5rem] p-8 bg-white/5 border-white/10 h-full flex flex-col">
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="space-y-1">
+                          <h4 className="text-xl font-black text-white lilita-font tracking-tight">Resume Recent</h4>
+                          <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Pick up where you left off</p>
+                        </div>
+                        <History size={20} className="text-flc-orange" />
+                      </div>
+                      <div className="space-y-3 flex-1">
+                        {recentHistory.slice(0, 5).map((item) => (
+                          <button
+                            key={item.id}
+                            onClick={() => handleLoadHistory(item.id)}
+                            className="w-full text-left p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.08] hover:border-flc-orange/30 transition-all group flex items-center justify-between"
+                          >
+                            <div className="space-y-0.5 overflow-hidden">
+                              <p className="text-sm font-black text-white truncate group-hover:text-flc-orange transition-colors">
+                                {item.subject || "No Subject"}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                                  {new Date(item.createdAt).toLocaleDateString()}
+                                </p>
+                                <span className="w-1 h-1 rounded-full bg-zinc-700" />
+                                <p className={`text-[9px] font-bold uppercase tracking-widest ${item.status === 'COMPLETED' ? 'text-emerald-500' : 'text-amber-500'
+                                  }`}>
+                                  {item.status}
+                                </p>
+                              </div>
+                            </div>
+                            <ChevronRight size={16} className="text-zinc-600 group-hover:text-flc-orange transition-all" />
+                          </button>
+                        ))}
+                      </div>
+                      {recentHistory.length > 5 && (
+                        <button
+                          onClick={() => window.location.href = '/history'}
+                          className="mt-6 text-center w-full py-4 rounded-2xl border border-white/5 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-white/5 transition-all"
+                        >
+                          View All History
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="glass-card !rounded-[3rem] p-10 bg-white/5 border-white/10 h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
+                      <History size={48} className="text-zinc-700" />
+                      <div className="space-y-1">
+                        <p className="font-black text-white uppercase tracking-widest text-xs">No Recent Campaigns</p>
+                        <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">Your past work will appear here</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -414,38 +629,38 @@ export default function BulkSenderPage() {
           )}
 
           {currentStep === 1 && (
-            <div className="space-y-10 max-w-7xl mx-auto">
-              <div className="grid grid-cols-1 lg:grid-cols-5 gap-12">
-                <div className="lg:col-span-3 space-y-8">
+            <div className="space-y-6 max-w-full mx-auto">
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
+                <div className="lg:col-span-3 space-y-6">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-flc-orange/10 flex items-center justify-center text-flc-orange shadow-inner">
-                        <Mail className="w-5 h-5 sm:w-6 sm:h-6" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-flc-orange/10 flex items-center justify-center text-flc-orange shadow-inner">
+                        <Mail className="w-5 h-5" />
                       </div>
-                      <h3 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Compose Email</h3>
+                      <h3 className="text-xl sm:text-3xl font-black lilita-font tracking-tight">Compose Email</h3>
                     </div>
 
                     <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
                       <button
                         onClick={() => setEditorMode("visual")}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${editorMode === "visual" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${editorMode === "visual" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
                           }`}
                       >
-                        <Type size={14} />
+                        <Type size={12} />
                         Visual
                       </button>
                       <button
                         onClick={() => setEditorMode("html")}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${editorMode === "html" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${editorMode === "html" ? "bg-flc-orange text-white" : "text-zinc-500 hover:text-white"
                           }`}
                       >
-                        <Code2 size={14} />
+                        <Code2 size={12} />
                         HTML
                       </button>
                     </div>
                   </div>
 
-                  <div className="space-y-8 glass-card p-10 !rounded-[3rem]">
+                  <div className="space-y-6 glass-card p-8 !rounded-[2.5rem]">
                     <div className="space-y-3">
                       <label className="text-[11px] font-black text-zinc-500 uppercase tracking-widest ml-2">Subject Line</label>
                       <input
@@ -569,10 +784,10 @@ export default function BulkSenderPage() {
           )}
 
           {currentStep === 2 && (
-            <div className="max-w-7xl mx-auto space-y-12">
-              <div className="text-center space-y-4">
-                <h2 className="text-4xl sm:text-6xl font-black lilita-font tracking-tight">Certificate Designer</h2>
-                <p className="text-zinc-500 text-lg sm:text-xl font-medium">Map dynamic text to your certificate images.</p>
+            <div className="max-w-full mx-auto space-y-6">
+              <div className="text-center space-y-2">
+                <h2 className="text-2xl sm:text-4xl font-black lilita-font tracking-tight">Certificate Designer</h2>
+                <p className="text-zinc-500 text-sm sm:text-base font-medium">Map dynamic text to your certificate images.</p>
               </div>
               <div className="glass-card p-2 sm:p-4 !rounded-[2rem] sm:!rounded-[4rem]">
                 <ImageConfigurator
@@ -586,7 +801,7 @@ export default function BulkSenderPage() {
           )}
 
           {currentStep === 3 && (
-            <div className="max-w-7xl mx-auto">
+            <div className="max-w-full mx-auto">
               <BulkEmailPreview
                 data={data}
                 template={template}
@@ -599,9 +814,11 @@ export default function BulkSenderPage() {
                 rowStatuses={rowStatuses}
                 onRowAction={handleRowAction}
                 currentlyProcessing={currentlyProcessing}
-                onCancelDispatch={handleCancelDispatch}
                 onPauseDispatch={handlePauseDispatch}
-                onResumeDispatch={handleSend}
+                onCancelDispatch={handleCancelDispatch}
+                onResumeDispatch={handleResumeAll}
+                onRetryFailed={handleRetryFailed}
+                onRetryCancelled={handleRetryCancelled}
                 onResetAndNew={handleResetAndNew}
                 onDataEdit={handleDataEdit}
                 onAgree={async () => {

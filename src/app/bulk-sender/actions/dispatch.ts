@@ -210,3 +210,49 @@ export async function updateCampaignProgress({ historyId, logs, status, excelDat
     }
 }
 
+export async function getCampaignHistory() {
+    const session = await getSession();
+    if (!session) return { success: false, error: "Unauthorized" };
+
+    try {
+        const history = await db.emailHistory.findMany({
+            where: { userId: session.user.id },
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            select: {
+                id: true,
+                subject: true,
+                status: true,
+                createdAt: true,
+                accountId: true,
+            }
+        });
+        return { success: true, history };
+    } catch (error) {
+        return { success: false, error: "Failed to fetch history" };
+    }
+}
+
+export async function getCampaignDetails(id: string) {
+    const session = await getSession();
+    if (!session) return { success: false, error: "Unauthorized" };
+
+    try {
+        const campaign = await db.emailHistory.findUnique({
+            where: { id, userId: session.user.id },
+        });
+        if (!campaign) return { success: false, error: "Campaign not found" };
+        
+        return { 
+            success: true, 
+            campaign: {
+                ...campaign,
+                imagesConfig: JSON.parse(campaign.imagesConfig),
+                excelData: JSON.parse(campaign.excelData),
+                logs: JSON.parse(campaign.logs)
+            }
+        };
+    } catch (error) {
+        return { success: false, error: "Failed to fetch details" };
+    }
+}
