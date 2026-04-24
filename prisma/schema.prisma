@@ -133,6 +133,7 @@ model EmailHistory {
   status       String       @default("PENDING") // PENDING, COMPLETED, PARTIAL, FAILED
   logs         Json?        // Detailed logs for each recipient
   createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @default(now()) @updatedAt
 
   @@map("email_history")
 }
