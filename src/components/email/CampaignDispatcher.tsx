@@ -122,22 +122,10 @@ export default function CampaignDispatcher({
           setActiveHistoryId(camp.id);
           setDispatchLogs(safeLogs);
 
-          // Determine overall state
+          // Determine overall state dynamically
           const isOverallPaused = camp.status.includes("PAUSED");
           const isOverallCancelled = camp.status.includes("CANCELLED");
-          const isCompleted = camp.status === "COMPLETED";
-
-          if (isOverallCancelled) {
-            setDispatchState("CANCELLED");
-          } else if (isCompleted) {
-            setDispatchState("COMPLETED");
-          } else if (isOverallPaused) {
-            setDispatchState("PAUSED");
-          } else {
-            // PROCESSING status from a previous session = treat as PAUSED
-            setDispatchState("PAUSED");
-          }
-
+          
           // Reconstruct per-row statuses
           const statuses: Record<number, string> = {};
           const defaultStatus = isOverallCancelled ? "CANCELLED" : "PAUSED";
@@ -150,14 +138,31 @@ export default function CampaignDispatcher({
           rowStatusesRef.current = statuses;
 
           // Progress
-          const success = safeLogs.filter((l: any) => l.status === "SUCCESS").length;
-          const failed = safeLogs.filter((l: any) => l.status === "FAILED").length;
+          const successCount = safeLogs.filter((l: any) => l.status === "SUCCESS").length;
+          const failedCount = safeLogs.filter((l: any) => l.status === "FAILED").length;
           setDispatchProgress({
             current: safeLogs.length,
             total: safeData.length,
-            success,
-            failed,
+            success: successCount,
+            failed: failedCount,
           });
+
+          const isCompleted = camp.status === "COMPLETED" || successCount === safeData.length;
+
+          if (isCompleted) {
+            setDispatchState("COMPLETED");
+            // If it was dynamically determined to be completed but DB says otherwise, sync DB (fire & forget)
+            if (camp.status !== "COMPLETED") {
+                updateCampaignProgress({ historyId: camp.id, logs: safeLogs, status: "COMPLETED" }).catch(() => {});
+            }
+          } else if (isOverallCancelled) {
+            setDispatchState("CANCELLED");
+          } else if (isOverallPaused) {
+            setDispatchState("PAUSED");
+          } else {
+            // PROCESSING status from a previous session = treat as PAUSED
+            setDispatchState("PAUSED");
+          }
         } else {
           toast.error(res.error || "Failed to load campaign");
         }

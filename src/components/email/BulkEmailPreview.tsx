@@ -181,8 +181,8 @@ export default function BulkEmailPreview({
                                         Resume Pending
                                     </button>
                                 )}
-                                {/* RESUME PAUSED: visible whenever any row is paused */}
-                                {Object.values(rowStatuses).some(s => s === "PAUSED") && (
+                                {/* RESUME PAUSED: visible whenever any row is paused AND not currently sending */}
+                                {!isCurrentlySending && Object.values(rowStatuses).some(s => s === "PAUSED") && (
                                     <button onClick={onResumeDispatch}
                                         className="bg-flc-orange/10 text-flc-orange border border-flc-orange/20 px-8 py-4 rounded-full font-black uppercase text-xs tracking-widest hover:bg-flc-orange hover:text-white transition-all flex items-center gap-3 shadow-[0_0_20px_rgba(249,115,22,0.2)]">
                                         <Send size={16} />
