@@ -67,10 +67,12 @@ export default function CampaignDispatcher({
   const actionRequested = useRef<"NONE" | "CANCEL" | "PAUSE" | "PAUSE_ERROR">("NONE");
   const rowStatusesRef = useRef<Record<number, string>>({});
   const dispatchStateRef = useRef<DispatchState>(dispatchState);
+  const dispatchLogsRef = useRef<any[]>(dispatchLogs);
 
   // Sync refs
   useEffect(() => { rowStatusesRef.current = rowStatuses; }, [rowStatuses]);
   useEffect(() => { dispatchStateRef.current = dispatchState; }, [dispatchState]);
+  useEffect(() => { dispatchLogsRef.current = dispatchLogs; }, [dispatchLogs]);
 
   // ── Initialization ─────────────────────────────────
 
@@ -103,11 +105,11 @@ export default function CampaignDispatcher({
         const res = await getCampaignDetails(campaignId);
         if (res.success && res.campaign) {
           const camp = res.campaign;
-          const safeData = Array.isArray(camp.excelData) ? (camp.excelData as ExcelRow[]) : 
+          const safeData = Array.isArray(camp.excelData) ? (camp.excelData as ExcelRow[]) :
             (typeof camp.excelData === "string" ? JSON.parse(camp.excelData || "[]") : []);
-          const safeLogs = Array.isArray(camp.logs) ? (camp.logs as any[]) : 
+          const safeLogs = Array.isArray(camp.logs) ? (camp.logs as any[]) :
             (typeof camp.logs === "string" ? JSON.parse(camp.logs || "[]") : []);
-          const safeImages = Array.isArray(camp.imagesConfig) ? camp.imagesConfig : 
+          const safeImages = Array.isArray(camp.imagesConfig) ? camp.imagesConfig :
             (typeof camp.imagesConfig === "string" ? JSON.parse(camp.imagesConfig || "[]") : []);
 
           setData(safeData);
@@ -138,8 +140,7 @@ export default function CampaignDispatcher({
 
           // Reconstruct per-row statuses
           const statuses: Record<number, string> = {};
-          const defaultStatus = (isOverallPaused || camp.status === "PROCESSING") ? "PAUSED" : 
-                                isOverallCancelled ? "CANCELLED" : "PENDING";
+          const defaultStatus = isOverallCancelled ? "CANCELLED" : "PAUSED";
           const typedSafeData = safeData as ExcelRow[];
           typedSafeData.forEach((_: any, i: number) => { statuses[i] = defaultStatus; });
           safeLogs.forEach((l: any) => {
@@ -177,7 +178,7 @@ export default function CampaignDispatcher({
 
     const currentState = dispatchStateRef.current;
     const isResuming = currentState === "PAUSED" || currentState === "ERROR_PAUSED" ||
-                       currentState === "CANCELLED" || currentState === "COMPLETED";
+      currentState === "CANCELLED" || currentState === "COMPLETED";
 
     setDispatchState("SENDING");
     actionRequested.current = "NONE";
@@ -212,13 +213,12 @@ export default function CampaignDispatcher({
     } else if (currentState === "ERROR_PAUSED" && currentHistoryId) {
       await updateCampaignProgress({
         historyId: currentHistoryId,
-        logs: JSON.parse(JSON.stringify(dispatchLogs)),
+        logs: JSON.parse(JSON.stringify(dispatchLogsRef.current)),
         status: "PROCESSING",
         excelData: JSON.parse(JSON.stringify(data)),
       });
     }
 
-    const logs = [...dispatchLogs];
     const currentStatuses = rowStatusesRef.current;
     let successCount = Object.values(currentStatuses).filter(s => s === "SUCCESS").length;
     let failCount = Object.values(currentStatuses).filter(s => s === "FAILED").length;
@@ -239,12 +239,16 @@ export default function CampaignDispatcher({
         accountId: selectedAccountId,
         row: JSON.parse(JSON.stringify(row)),
         template: JSON.parse(JSON.stringify(template)),
-        rowIndex: i + 1,
+        rowIndex: i,
+        historyId: currentHistoryId || undefined,
       });
 
       const updatedLog = { ...result.log, rowIndex: i };
-      logs.push(updatedLog);
-      setDispatchLogs([...logs]);
+      // Filter out any existing log for this row to prevent duplicates (e.g. on retry)
+      const filteredLogs = dispatchLogsRef.current.filter(l => l.rowIndex !== i);
+      const newLogs = [...filteredLogs, updatedLog];
+      
+      setDispatchLogs(newLogs);
 
       processedCount++;
       if (result.success) {
@@ -261,7 +265,7 @@ export default function CampaignDispatcher({
       if (currentHistoryId) {
         await updateCampaignProgress({
           historyId: currentHistoryId,
-          logs: JSON.parse(JSON.stringify(logs)),
+          logs: JSON.parse(JSON.stringify(newLogs)),
           status: "PROCESSING",
         });
       }
@@ -281,7 +285,7 @@ export default function CampaignDispatcher({
       rowStatusesRef.current = pausedStatuses;
       setDispatchState("PAUSED");
       if (currentHistoryId) {
-        await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(logs)), status: "PAUSED" });
+        await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(dispatchLogsRef.current)), status: "PAUSED" });
       }
       setIsSending(false);
       return;
@@ -290,7 +294,7 @@ export default function CampaignDispatcher({
     if ((actionRequested.current as string) === "PAUSE_ERROR") {
       setDispatchState("ERROR_PAUSED");
       if (currentHistoryId) {
-        await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(logs)), status: "ERROR_PAUSED" });
+        await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(dispatchLogsRef.current)), status: "ERROR_PAUSED" });
       }
       setIsSending(false);
       return;
@@ -314,7 +318,7 @@ export default function CampaignDispatcher({
 
     setDispatchState(finalState);
     if (currentHistoryId) {
-      await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(logs)), status: finalStatus });
+      await updateCampaignProgress({ historyId: currentHistoryId, logs: JSON.parse(JSON.stringify(dispatchLogsRef.current)), status: finalStatus });
     }
 
     if (allSuccess) toast.success(`All ${successCount} emails sent successfully!`);
@@ -360,36 +364,62 @@ export default function CampaignDispatcher({
       if (dispatchState !== "SENDING") handleSend();
     } else if (action === "CANCEL") {
       setRowStatuses(prev => ({ ...prev, [index]: "CANCELLED" }));
+
+      const targetEmail = (data[index]!.Email || data[index]!.email || Object.values(data[index]!)[0]) as string;
+      // Remove any existing log for this row to prevent duplicates, then append CANCELLED log
+      const newLogs = dispatchLogsRef.current.filter(l => l.rowIndex !== index);
+      newLogs.push({ email: targetEmail, status: "CANCELLED", rowIndex: index });
+      setDispatchLogs(newLogs);
+
+      if (activeHistoryId) {
+        updateCampaignProgress({
+          historyId: activeHistoryId,
+          logs: JSON.parse(JSON.stringify(newLogs)),
+          status: dispatchStateRef.current
+        });
+      }
+
       toast.info(`Email #${index + 1} cancelled`);
     }
   };
 
-  const handleCancelDispatch = () => {
+  const handleCancelDispatch = async () => {
     actionRequested.current = "CANCEL";
     const next = { ...rowStatusesRef.current };
+    let newLogs = [...dispatchLogsRef.current];
     Object.keys(next).forEach(k => {
       const s = next[parseInt(k)];
-      if (s === "PENDING" || s === "PAUSED") next[parseInt(k)] = "CANCELLED";
+      if (s === "PENDING" || s === "PAUSED") {
+        next[parseInt(k)] = "CANCELLED";
+        const targetEmail = (data[parseInt(k)]!.Email || data[parseInt(k)]!.email || Object.values(data[parseInt(k)]!)[0]) as string;
+        // Remove any existing log for this row to prevent duplicates
+        newLogs = newLogs.filter(l => l.rowIndex !== parseInt(k));
+        newLogs.push({ email: targetEmail, status: "CANCELLED", rowIndex: parseInt(k) });
+      }
     });
     setRowStatuses(next);
     rowStatusesRef.current = next;
+    setDispatchLogs(newLogs);
 
-    if (dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED") {
+    // Immediately update DB to prevent state loss on page reload
+    if (activeHistoryId) {
+      await updateCampaignProgress({
+        historyId: activeHistoryId,
+        logs: JSON.parse(JSON.stringify(newLogs)),
+        status: `CANCELLED (${dispatchProgress.success}/${data.length} sent)`,
+      });
+    }
+
+    if (dispatchState === "PAUSED" || dispatchState === "ERROR_PAUSED" || dispatchState === "IDLE") {
       setDispatchState("CANCELLED");
       setIsSending(false);
-      if (activeHistoryId) {
-        updateCampaignProgress({
-          historyId: activeHistoryId,
-          logs: JSON.parse(JSON.stringify(dispatchLogs)),
-          status: `CANCELLED (${dispatchProgress.success}/${data.length} sent)`,
-        });
-      }
     } else {
+      setDispatchState("CANCELLED");
       toast.info("Cancelling... waiting for current email to finish.");
     }
   };
 
-  const handlePauseDispatch = () => {
+  const handlePauseDispatch = async () => {
     actionRequested.current = "PAUSE";
     const next = { ...rowStatusesRef.current };
     Object.keys(next).forEach(k => {
@@ -397,6 +427,17 @@ export default function CampaignDispatcher({
     });
     setRowStatuses(next);
     rowStatusesRef.current = next;
+
+    // Immediately update DB
+    if (activeHistoryId) {
+      await updateCampaignProgress({
+        historyId: activeHistoryId,
+        logs: JSON.parse(JSON.stringify(dispatchLogsRef.current)),
+        status: "PAUSED"
+      });
+    }
+
+    setDispatchState("PAUSED");
     toast.info("Pausing... current email will finish sending.");
   };
 

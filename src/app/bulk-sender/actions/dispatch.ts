@@ -29,9 +29,10 @@ interface SingleDispatchParams {
   row: ExcelRow;
   template: EmailTemplate;
   rowIndex: number;
+  historyId?: string;
 }
 
-export async function dispatchSingleEmail({ accountId, row, template, rowIndex }: SingleDispatchParams) {
+export async function dispatchSingleEmail({ accountId, row, template, rowIndex, historyId }: SingleDispatchParams) {
   const session = await getSession();
   if (!session) return { success: false, error: "Unauthorized" };
 
@@ -133,10 +134,58 @@ export async function dispatchSingleEmail({ accountId, row, template, rowIndex }
       attachments,
     });
     
+    const successLog = { email: recipientEmail, status: "SUCCESS", rowIndex };
+    
+    if (historyId) {
+        try {
+            const history = await db.emailHistory.findUnique({ where: { id: historyId, userId: session.user.id } });
+            if (history) {
+                let parsedLogs: any[] = [];
+                if (Array.isArray(history.logs)) {
+                    parsedLogs = history.logs;
+                } else if (typeof history.logs === "string") {
+                    try { parsedLogs = JSON.parse(history.logs); } catch (e) {}
+                }
+                parsedLogs = parsedLogs.filter((l: any) => l.rowIndex !== rowIndex);
+                parsedLogs.push(successLog);
+                await db.emailHistory.update({
+                    where: { id: historyId },
+                    data: { logs: JSON.stringify(parsedLogs) }
+                });
+            }
+        } catch (e) {
+            console.error("Failed to update log on server side:", e);
+        }
+    }
+
     return { success: true, log: { email: recipientEmail, status: "SUCCESS" } };
 
   } catch (error: any) {
     console.error(`Dispatch error for ${recipientEmail}:`, error);
+    const errorLog = { email: recipientEmail, status: "FAILED", error: error.message || "Failed to send", rowIndex };
+    
+    if (historyId) {
+        try {
+            const history = await db.emailHistory.findUnique({ where: { id: historyId, userId: session.user.id } });
+            if (history) {
+                let parsedLogs: any[] = [];
+                if (Array.isArray(history.logs)) {
+                    parsedLogs = history.logs;
+                } else if (typeof history.logs === "string") {
+                    try { parsedLogs = JSON.parse(history.logs); } catch (e) {}
+                }
+                parsedLogs = parsedLogs.filter((l: any) => l.rowIndex !== rowIndex);
+                parsedLogs.push(errorLog);
+                await db.emailHistory.update({
+                    where: { id: historyId },
+                    data: { logs: JSON.stringify(parsedLogs) }
+                });
+            }
+        } catch (e) {
+            console.error("Failed to update error log on server side:", e);
+        }
+    }
+
     return { success: false, log: { email: recipientEmail, status: "FAILED", error: error.message || "Failed to send" } };
   }
 }
